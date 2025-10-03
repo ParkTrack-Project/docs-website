@@ -49,7 +49,7 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/parktrack-project/docs-website/tree/main/src/',
+            'https://github.com/parktrack-project/docs-website/edit/main/docs/',
         },
         blog: {
           showReadingTime: true,
@@ -60,7 +60,7 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/parktrack-project/docs-website/tree/main/src/pages/',
+            'https://github.com/parktrack-project/docs-website/edit/main/src/pages/',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
