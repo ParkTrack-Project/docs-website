@@ -2,10 +2,13 @@ import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
-import HomepageFeatures from '@site/src/components/HomepageFeatures';
+import MDXContent from '@theme/MDXContent';
+import {ThemeClassNames} from '@docusaurus/theme-common';
 
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
+
+import LinksContent from '../../docs/mainpage_links.md';
 
 function HomepageHeader() {
   const {siteConfig} = useDocusaurusContext();
@@ -20,7 +23,7 @@ function HomepageHeader() {
           <Link
             className="button button--secondary button--lg"
             to="/docs/intro">
-            Docusaurus Tutorial - 5min ⏱️
+            Open Docs 🚀️
           </Link>
         </div>
       </div>
@@ -32,12 +35,25 @@ export default function Home() {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title={`Hello from ${siteConfig.title}`}
-      description="Description will go into a meta tag in <head />">
+      title={`Basic info`}
+      description="ParkTrack docs website">
       <HomepageHeader />
-      <main>
-        <HomepageFeatures />
-      </main>
+        <main>
+            <div
+                className={clsx(
+                    'container',
+                    'margin-vert--lg',
+                    'padding-vert--lg',
+                    'homeDocContainer'
+                )}
+            >
+                <article className={ThemeClassNames.docs.docMarkdown}>
+                    <MDXContent>
+                        <LinksContent/>
+                    </MDXContent>
+                </article>
+            </div>
+        </main>
     </Layout>
   );
 }

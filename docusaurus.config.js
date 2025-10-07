@@ -10,7 +10,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'ParkTrack Project',
+  title: 'ParkTrack Project Docs',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -105,16 +105,20 @@ const config = {
         style: 'dark',
         links: [
           {
-            title: 'Документация',
+            title: 'Docs',
             items: [
               {
-                label: 'Введение',
+                label: 'Intro',
                 to: '/docs/intro',
+              },
+              {
+                label: 'API',
+                to: '/docs/api',
               },
             ],
           },
           {
-            title: 'Ещё',
+            title: 'More',
             items: [
               {
                 label: 'GitHub',
@@ -123,7 +127,7 @@ const config = {
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} ParkTrack Project, Inc.`,
+        copyright: `Copyright © ${new Date().getFullYear()} ParkTrack Project`,
       },
       prism: {
         theme: prismThemes.github,

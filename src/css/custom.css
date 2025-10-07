@@ -28,3 +28,8 @@
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+.homeDocContainer {
+  max-width: 720px; /* ← можешь подстроить под вкус: 640–800 оптимально */
+  margin: 0 auto;
+}
