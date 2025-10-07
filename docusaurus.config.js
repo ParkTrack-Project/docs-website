@@ -77,7 +77,6 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       // Replace with your project's social card
-      image: 'img/docusaurus-social-card.jpg',
       colorMode: {
         respectPrefersColorScheme: true,
       },
@@ -85,14 +84,12 @@ const config = {
         title: 'ParkTrack Docs',
         logo: {
           alt: 'ParkTrack Docs',
-          src: 'img/logo.svg',
+          src: 'img/small_cropped.jpg',
         },
         items: [
           {
-            type: 'docSidebar',
-            sidebarId: 'tutorialSidebar',
-            position: 'left',
-            label: 'Tutorial',
+            href: '/docs/api',
+            label: 'API',
           },
           {
             href: 'https://github.com/parktrack-project',

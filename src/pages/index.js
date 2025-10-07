@@ -8,7 +8,7 @@ import {ThemeClassNames} from '@docusaurus/theme-common';
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
-import LinksContent from '../../docs/mainpage_links.md';
+import LinksContent from '../../docs/intro.md';
 
 function HomepageHeader() {
   const {siteConfig} = useDocusaurusContext();
@@ -16,14 +16,14 @@ function HomepageHeader() {
     <header className={clsx('hero hero--primary', styles.heroBanner)}>
       <div className="container">
         <Heading as="h1" className="hero__title">
-          {siteConfig.title}
+          Карта свободных парковок
         </Heading>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
-            to="/docs/intro">
-            Open Docs 🚀️
+            to="/docs/api">
+            Открыть документацию 🚀️
           </Link>
         </div>
       </div>
