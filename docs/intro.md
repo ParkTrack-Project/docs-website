@@ -9,7 +9,7 @@ title: Инфо
 - [Бот записи прогресса](https://t.me/fitipphysicsprog_bot)
 - [Бот записи на встречи](https://t.me/fitipphysics_bot)
 
-# Наш проект
+## Наш проект
 - [Организация на GitHub](https://github.com/parktrack-project)
 
-![img.png](img.png)
+![img.png](images/img.png)
