@@ -43,11 +43,19 @@ Authorization: Bearer <token>
 [
   {
     "camera_id": 1,
-    "title": "Кронверкский просп., парковка напротив ИТМО"
+    "title": "Кронверкский просп., парковка напротив ИТМО",
+    "latitude": 59.955976,
+    "longitude": 30.309426,
+    "created_at": "2025-10-08T09:12:00Z",
+    "updated_at": "2025-10-08T09:12:00Z"
   },
   {
     "camera_id": 2,
-    "title": "Ломоносова, 9 — двор"
+    "title": "Ломоносова, 9 — двор",
+    "latitude": 59.927366,
+    "longitude": 30.338487,
+    "created_at": "2025-10-08T09:15:00Z",
+    "updated_at": "2025-10-08T09:15:00Z"
   }
 ]
 ```
@@ -121,7 +129,6 @@ Authorization: Bearer <token>
 POST /api/v0/cameras/new HTTP/1.1
 Content-Type: text/plain
 
-{ "error_description": "…" }
 ```
 **Ответ (415)**
 ```json
@@ -147,7 +154,7 @@ Content-Type: application/json
 POST /api/v0/cameras/new HTTP/1.1
 Content-Type: application/json
 
-{ "title": "Кронверкский просп., парковка напротив ИТМО" }
+{ "title": "Кронверкский просп., парковка напротив ИТМО", "latitude": 59.955976, "longitude": 30.309426 }
 ```
 **Ответ (409)**
 ```json
