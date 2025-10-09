@@ -1,0 +1,324 @@
+---
+sidebar_position: 3
+title: Parking Zones
+---
+
+# 3. Parking Zones
+
+## Модель `Zone`
+
+Объект зоны в ответах API:
+
+- **zone_id** (`integer`) — уникальный идентификатор зоны.
+- **camera_id** (`integer`) — ID камеры, к которой относится зона.
+- **zone_type** (`string`, enum: `parallel` | `standard`) — тип парковки.
+- **capacity** (`integer`, ≥0) — вместимость (количество мест).
+- **occupied** (`integer`, ≥0, ≤`capacity`) — текущее число занятых мест.
+- **confidence** (`float`, 0..1) — достоверность оценки `occupied`.
+- **pay** (`integer`, ≥0) — стоимость в рублях/час (0 — бесплатно).
+- **points** (`list[4]`) — опорные точки зоны (карта + пиксели изображения), по часовой:
+  - **latitude** (`float`, -90..90)
+  - **longitude** (`float`, -180..180)
+  - **x** (`float`, ≥0)
+  - **y** (`float`, ≥0)
+- **created_at** (`string`, ISO 8601)
+- **updated_at** (`string`, ISO 8601)
+
+> Для MVP предполагается **ровно 4** точки зоны (в порядке движения по часовой стрелке). Для `parallel` визуализация может использовать середины коротких сторон как линию.
+
+---
+
+### 3.1 `GET /zones`
+
+Возвращает список всех парковочных зон.
+
+**Headers**
+- `Authorization: Bearer <token>`
+
+**Query-параметры (необязательные)**
+- **camera_id** (`integer`) — вернуть зоны только указанной камеры.
+- **min_free_count** (`integer`) — фильтр по минимальному количеству свободных мест в зоне.
+- **max_pay** (`integer`) — фильтр по максимальной цене парковки в зоне за час.
+
+**Response (200)**
+Массив объектов **Zone**:
+```json
+[
+  {
+    "zone_id": 1,
+    "camera_id": 1,
+    "zone_type": "parallel",
+    "capacity": 7,
+    "occupied": 5,
+    "confidence": 0.76,
+    "pay": 0,
+    "points": [
+      {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
+      {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
+      {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
+      {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+    ],
+    "created_at": "2025-10-08T08:00:00Z",
+    "updated_at": "2025-10-08T08:10:00Z"
+  }
+]
+```
+
+**Ошибки**
+
+см. [общие ошибки](/docs/api/#общие-ошибки).
+
+**Пример запроса**
+```http
+GET /api/v0/zones?camera_id=1 HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Authorization: Bearer <token>
+```
+
+---
+
+### 3.2 `POST /zones/new`
+
+Создаёт новую парковочную зону.
+
+**Headers**
+- `Content-Type: application/json`
+- `Authorization: Bearer <token>`
+
+**Request body (required)**
+- **camera_id** (`integer`) — существующий ID камеры.
+- **zone_type** (`string`) — `parallel` или `standard`.
+- **capacity** (`integer`, ≥0)
+- **pay** (`integer`, ≥0)
+- **points** (`list[4]`) — четыре точки (по часовой):
+  - **latitude** (`float`, -90..90)
+  - **longitude** (`float`, -180..180)
+  - **x** (`float`, ≥0)
+  - **y** (`float`, ≥0)
+
+*Валидация*
+- Ровно 4 точки.
+- Координаты широты/долготы в допустимых диапазонах.
+- `capacity >= 0`, `pay >= 0`.
+- Сервер может дополнительно валидировать геометрию (невырожденный четырёхугольник).
+
+**Response (201)**
+- **zone_id** (`integer`) — ID созданной зоны.
+
+**Пример запроса**
+```http
+POST /api/v0/zones/new HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "pay": 0,
+  "points": [
+    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
+    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
+    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
+    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  ]
+}
+```
+
+**Пример ответа (201)**
+```json
+{ "zone_id": 1 }
+```
+
+**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+
+| Код     | Тип                      | Описание                                                                                                  |
+|---------|--------------------------|-----------------------------------------------------------------------------------------------------------|
+| **404** | `Not Found`              | Камера с указанным `camera_id` не существует.                                                             |
+| **422** | `Unprocessable Entity`   | Валидация не пройдена: недопустимые диапазоны координат, `points` не из 4 элементов, `capacity`/`pay` < 0. |
+
+**Формат тела ошибки (рекомендуется)**
+```json
+{
+  "error_description": "Validation error: points[2].latitude must be between -90 and 90"
+}
+```
+
+---
+
+### 3.3 `GET /zones/<zone_id>`
+
+Возвращает данные о конкретной парковочной зоне.
+
+**Path-параметры**
+- **zone_id** (`integer`, required)
+
+**Headers**
+- `Authorization: Bearer <token>`
+
+**Response (200)** — объект **Zone**
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "occupied": 5,
+  "confidence": 0.76,
+  "pay": 0,
+  "points": [
+    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
+    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
+    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
+    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  ],
+  "created_at": "2025-10-08T08:00:00Z",
+  "updated_at": "2025-10-08T08:10:00Z"
+}
+```
+
+**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+
+| Код     | Тип         | Описание                           |
+|---------|-------------|------------------------------------|
+| **404** | `Not Found` | Зона с таким `zone_id` не найдена. |
+
+**Пример запроса**
+```http
+GET /api/v0/zones/1 HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Authorization: Bearer <token>
+```
+
+---
+
+### 3.4 `PUT /zones/<zone_id>`
+
+Обновляет данные парковочной зоны. Разрешается частичное обновление (любое подмножество полей).
+
+**Path-параметры**
+- **zone_id** (`integer`, required)
+
+**Headers**
+- `Content-Type: application/json`
+- `Authorization: Bearer <token>`
+
+**Request body** *(минимум одно поле)*
+- **camera_id** (`integer`) — ID камеры (переназначение зоны).
+- **zone_type** (`string`, `parallel` | `standard`)
+- **capacity** (`integer`, ≥0)
+- **pay** (`integer`, ≥0)
+- **occupied** (`integer`, ≥0, ≤`capacity`)
+- **confidence** (`float`, 0..1)
+- **points** (`list[4]`) — четыре точки (см. структуру в 3.2)
+
+> Серверные поля `zone_id`, `created_at`, `updated_at` выставляются сервером и игнорируются в теле запроса.
+
+**Response (200)** — объект **Zone** после обновления
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "occupied": 5,
+  "confidence": 0.76,
+  "pay": 0,
+  "points": [
+    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
+    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
+    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
+    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  ],
+  "created_at": "2025-10-08T08:00:00Z",
+  "updated_at": "2025-10-08T09:02:11Z"
+}
+```
+
+**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+
+| Код     | Тип                      | Описание                                                                                                                                                 |
+|---------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **404** | `Not Found`              | `zone_id` не существует, либо (при смене `camera_id`) указанная камера не найдена.                                                                       |
+| **422** | `Unprocessable Entity`   | Валидация не пройдена: `capacity < 0`; `occupied < 0` или `occupied > capacity`; `confidence` вне `0..1`; `points` не из 4 элементов; неверные диапазоны координат. |
+
+**Примеры запросов**
+
+*Частичное обновление занятости*
+```http
+PUT /api/v0/zones/1 HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "occupied": 5,
+  "confidence": 0.76
+}
+```
+
+*Полное обновление геометрии/параметров*
+```http
+PUT /api/v0/zones/1 HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "pay": 0,
+  "points": [
+    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
+    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
+    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
+    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  ]
+}
+```
+
+**Формат тела ошибки (рекомендуется)**
+```json
+{
+  "error_description": "Validation error: occupied must be between 0 and capacity"
+}
+```
+
+---
+
+### 3.5 `DELETE /zones/<zone_id>`
+
+Удаляет парковочную зону.
+
+**Path-параметры**
+- **zone_id** (`integer`, required) — идентификатор зоны.
+
+**Headers**
+- `Authorization: Bearer <token>`
+
+**Response (204)** — зона успешно удалена, тело отсутствует.
+
+**Пример запроса**
+```http
+DELETE /api/v0/zones/1 HTTP/1.1
+Host: parktrack-api.nawinds.dev
+Authorization: Bearer <token>
+```
+
+**Ошибки**
+
+| Код     | Тип         | Описание                               |
+|---------|-------------|----------------------------------------|
+| **404** | `Not Found` | Зона с указанным `zone_id` не найдена. |
+| **409** | `Conflict`  | Удаление невозможно                    |
+
+**Пример ответа (404)**
+```json
+{
+  "error_description": "Zone not found"
+}
+```
+
+---
