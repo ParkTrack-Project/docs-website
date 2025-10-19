@@ -11,5 +11,7 @@ title: Инфо
 
 ## Наш проект
 - [Организация на GitHub](https://github.com/parktrack-project)
+- [Карта парковок](https://parktrack.nawinds.dev)
+- [Labeler](https://parktrack-labeler.nawinds.dev)
 
 ![img.png](images/img.png)
