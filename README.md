@@ -1,4 +1,6 @@
-# Website
+# Сайт документации проекта
+
+## [parktrack-docs.nawinds.dev - открыть сайт](https://parktrack-docs.nawinds.dev/)
 
 This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
 
