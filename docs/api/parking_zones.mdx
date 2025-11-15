@@ -71,7 +71,7 @@ title: Parking Zones
 **Пример запроса**
 ```http
 GET /api/v0/zones?camera_id=1 HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
@@ -108,7 +108,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 POST /api/v0/zones/new HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -187,7 +187,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 GET /api/v0/zones/1 HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
@@ -248,7 +248,7 @@ Authorization: Bearer <token>
 *Частичное обновление занятости*
 ```http
 PUT /api/v0/zones/1 HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -261,7 +261,7 @@ Authorization: Bearer <token>
 *Полное обновление геометрии/параметров*
 ```http
 PUT /api/v0/zones/1 HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -303,7 +303,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 DELETE /api/v0/zones/1 HTTP/1.1
-Host: parktrack-api.nawinds.dev
+Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
