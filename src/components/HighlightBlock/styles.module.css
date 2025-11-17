@@ -1,0 +1,12 @@
+.light {
+  background: #fff3a0;        /* жёлтый фон */
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.dark {
+  color: #ffe36b;             /* жёлтый текст */
+  background: transparent;    /* без подложки */
+  padding: 16px;
+  border-radius: 8px;
+}

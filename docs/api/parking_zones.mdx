@@ -3,6 +3,8 @@ sidebar_position: 3
 title: Parking Zones
 ---
 
+import HighlightParam from '@site/src/components/HighlightParam';
+
 # 3. Parking Zones
 
 ## Модель `Zone`
@@ -28,12 +30,15 @@ title: Parking Zones
 
 ---
 
-### 3.1 `GET /zones`
+### 3.1 `GET /zones` (Auth, NoAuth)
 
-Возвращает список всех парковочных зон.
+Возвращает список всех парковочных зон <HighlightParam>(авторизация не обязательна)</HighlightParam>.
 
 **Headers**
 - `Authorization: Bearer <token>`
+
+<HighlightParam>В случае отсутствия токена авторизации возвращаются все поля кроме `camera_id`.</HighlightParam>
+
 
 **Query-параметры (необязательные)**
 - **camera_id** (`integer`) — вернуть зоны только указанной камеры.
@@ -147,15 +152,17 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.3 `GET /zones/<zone_id>`
+### 3.3 `GET /zones/<zone_id>` (Auth, NoAuth)
 
-Возвращает данные о конкретной парковочной зоне.
+Возвращает данные о конкретной парковочной зоне <HighlightParam>(авторизация не обязательна).</HighlightParam>
 
 **Path-параметры**
 - **zone_id** (`integer`, required)
 
 **Headers**
 - `Authorization: Bearer <token>`
+
+<HighlightParam>В случае отсутствия токена авторизации возвращаются все поля кроме `camera_id`.</HighlightParam>
 
 **Response (200)** — объект **Zone**
 ```json

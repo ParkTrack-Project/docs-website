@@ -1,0 +1,21 @@
+.pre {
+  padding: 12px;
+  font-size: 14px;
+  overflow-x: auto;
+  background: var(--ifm-code-background);
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+/* Светлая тема — жёлтый фон */
+.light {
+  background: #fff3a0;
+  border-radius: 4px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Тёмная тема — жёлтый текст */
+.dark {
+  color: #ffe36b;
+}

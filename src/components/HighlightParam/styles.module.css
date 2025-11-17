@@ -1,0 +1,11 @@
+.lightMode {
+  background: #fff3a0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.darkMode {
+  color: #ffe36b;
+  font-weight: 500;
+}
