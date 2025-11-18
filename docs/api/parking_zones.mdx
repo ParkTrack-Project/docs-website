@@ -4,6 +4,7 @@ title: Parking Zones
 ---
 
 import HighlightParam from '@site/src/components/HighlightParam';
+import JSONHighlight from '@site/src/components/JSONHighlight';
 
 # 3. Parking Zones
 
@@ -23,6 +24,7 @@ import HighlightParam from '@site/src/components/HighlightParam';
   - **longitude** (`float`, -180..180)
   - **x** (`int`, ≥0)
   - **y** (`int`, ≥0)
+- <HighlightParam>**occupancy_updated_at** (`string`, ISO 8601)</HighlightParam>
 - **created_at** (`string`, ISO 8601)
 - **updated_at** (`string`, ISO 8601)
 
@@ -47,7 +49,7 @@ import HighlightParam from '@site/src/components/HighlightParam';
 
 **Response (200)**
 Массив объектов **Zone**:
-```json
+<JSONHighlight data={
 [
   {
     "zone_id": 1,
@@ -63,11 +65,12 @@ import HighlightParam from '@site/src/components/HighlightParam';
       {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
       {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
     ],
+    "occupancy_updated_at": "2025-10-08T08:10:00Z",
     "created_at": "2025-10-08T08:00:00Z",
     "updated_at": "2025-10-08T08:10:00Z"
   }
-]
-```
+]}
+highlight={["occupancy_updated_at"]}/>
 
 **Ошибки**
 
@@ -165,7 +168,7 @@ Authorization: Bearer <token>
 <HighlightParam>В случае отсутствия токена авторизации возвращаются все поля кроме `camera_id`.</HighlightParam>
 
 **Response (200)** — объект **Zone**
-```json
+<JSONHighlight data={
 {
   "zone_id": 1,
   "camera_id": 1,
@@ -180,9 +183,11 @@ Authorization: Bearer <token>
     {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
     {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
   ],
+  "occupancy_updated_at": "2025-10-08T08:10:00Z",
   "created_at": "2025-10-08T08:00:00Z",
   "updated_at": "2025-10-08T08:10:00Z"
-}
+}}
+highlight={["occupancy_updated_at"]}/>
 ```
 
 **Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
@@ -223,7 +228,7 @@ Authorization: Bearer <token>
 > Серверные поля `zone_id`, `created_at`, `updated_at` выставляются сервером и игнорируются в теле запроса.
 
 **Response (200)** — объект **Zone** после обновления
-```json
+<JSONHighlight data={
 {
   "zone_id": 1,
   "camera_id": 1,
@@ -238,9 +243,11 @@ Authorization: Bearer <token>
     {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
     {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
   ],
+  "occupancy_updated_at": "2025-10-08T08:10:00Z",
   "created_at": "2025-10-08T08:00:00Z",
   "updated_at": "2025-10-08T09:02:11Z"
-}
+}}
+highlight={["occupancy_updated_at"]}/>
 ```
 
 **Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
