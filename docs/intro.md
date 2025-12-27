@@ -12,6 +12,5 @@ title: Инфо
 ## Наш проект
 - [Организация на GitHub](https://github.com/parktrack-project)
 - [Карта парковок](https://parktrack.live)
-- [Labeler](https://labeler.parktrack.live)
 
 ![img.png](images/img.png)
