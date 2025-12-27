@@ -92,6 +92,10 @@ const config = {
             label: 'API',
           },
           {
+            href: '/docs/devlog',
+            label: 'DevLog',
+          },
+          {
             href: 'https://github.com/parktrack-project',
             label: 'GitHub',
             position: 'right',
