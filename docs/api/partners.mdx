@@ -1,0 +1,765 @@
+---
+sidebar_position: 4
+title: Partners
+---
+
+# 3. Partners
+
+Раздел описывает партнёрские организации, членство пользователей в партнёрских организациях и управление доступом сотрудников партнёра.
+
+## 3.1 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `admin.partners.view` — просмотр партнёрских организаций;
+- `admin.partners.manage` — создание, изменение и деактивация партнёрских организаций;
+- `partner_members.view` — просмотр сотрудников партнёра и их доступов;
+- `partner_members.invite` — добавление сотрудников партнёра;
+- `partner_members.update` — изменение членства сотрудника в партнёре;
+- `partner_members.disable` — отключение сотрудника от партнёра;
+- `partner_access.manage` — управление правами сотрудника внутри партнёра;
+- `partner_statistics.view` — просмотр статистики партнёра.
+
+### Правила видимости данных
+
+- администратор платформы может работать со всеми партнёрами;
+- обычный пользователь видит только те партнёрские организации, в которых у него есть активное членство;
+- сотрудник партнёра может управлять доступами внутри своей организации только при наличии соответствующих разрешений.
+
+### Общие ошибки
+
+| Код     | Тип                    | Описание                                                               |
+|---------|------------------------|------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса или отсутствуют обязательные поля.             |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден, истёк или сессия завершена.              |
+| **403** | `Forbidden`            | У пользователя недостаточно прав для выполнения действия.              |
+| **404** | `Not Found`            | Партнёрская организация или членство не найдено.                       |
+| **409** | `Conflict`             | Конфликт данных, например членство уже существует.                     |
+| **422** | `Unprocessable Entity` | Ошибка валидации.                                                      |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Partner not found"
+}
+```
+
+---
+
+## 3.2 Модель `Partner`
+
+Объект партнёрской организации в ответах API.
+
+- `partner_id` (`integer`) — уникальный идентификатор партнёра.
+- `name` (`string`) — название организации.
+- `slug` (`string`) — уникальный строковый идентификатор партнёра.
+- `contact_email` (`string | null`) — контактный email организации.
+- `contact_phone` (`string | null`) — контактный телефон организации.
+- `is_active` (`boolean`) — активна ли организация.
+- `created_at` (`string`, ISO 8601) — дата создания.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления.
+
+Пример:
+
+```json
+{
+  "partner_id": 10,
+  "name": "ООО Паркинг Партнёр",
+  "slug": "parking-partner",
+  "contact_email": "ops@partner.example",
+  "contact_phone": "+79990001122",
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:30:00Z"
+}
+```
+
+---
+
+## 3.3 Модель `PartnerMembership`
+
+Объект членства пользователя в партнёрской организации.
+
+- `partner_id` (`integer`) — идентификатор партнёра.
+- `user_id` (`integer`) — идентификатор пользователя.
+- `role` (`string`) — роль пользователя в партнёрской организации.
+- `permissions` (`string[]`) — список разрешений в рамках этой организации.
+- `read_scope` (`string`) — область доступа на чтение.
+- `write_scope` (`string`) — область доступа на изменение.
+- `delete_scope` (`string`) — область доступа на удаление.
+- `is_active` (`boolean`) — активно ли членство.
+- `created_at` (`string`, ISO 8601) — дата создания членства.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления членства.
+
+Пример:
+
+```json
+{
+  "partner_id": 10,
+  "user_id": 123,
+  "role": "partner_manager",
+  "permissions": [
+    "sources.create",
+    "sources.view",
+    "sources.update",
+    "cameras.create",
+    "cameras.view",
+    "cameras.update",
+    "zones.create",
+    "zones.view",
+    "zones.update"
+  ],
+  "read_scope": "own_or_assigned",
+  "write_scope": "own_or_assigned",
+  "delete_scope": "own",
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:30:00Z"
+}
+```
+
+---
+
+## 3.4 `GET /partners`
+
+Возвращает список партнёрских организаций, доступных текущему пользователю.
+
+### Правила ответа
+- для администратора платформы возвращаются все партнёры;
+- для остальных пользователей возвращаются только партнёры, в которых у пользователя есть активное членство.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+- `q` (`string`) — поиск по `name` или `slug`;
+- `is_active` (`boolean`) — фильтр по статусу организации;
+- `top` (`integer`, 1..100) — максимальное количество элементов;
+- `offset` (`integer`, >=0) — смещение для пагинации.
+
+**Пример запроса**
+
+```http
+GET /api/v1/partners?q=parking&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- `items` (`Partner[]`) — список партнёров;
+- `total` (`integer`) — общее количество партнёров по фильтру;
+- `top` (`integer`) — значение `top`, использованное в запросе;
+- `offset` (`integer`) — значение `offset`, использованное в запросе.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "partner_id": 10,
+      "name": "ООО Паркинг Партнёр",
+      "slug": "parking-partner",
+      "contact_email": "ops@partner.example",
+      "contact_phone": "+79990001122",
+      "is_active": true,
+      "created_at": "2026-04-06T10:00:00Z",
+      "updated_at": "2026-04-06T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+
+---
+
+## 3.5 `GET /partners/<partner_id>`
+
+Возвращает данные партнёрской организации по её идентификатору.
+
+### Условия доступа
+- администратор платформы может просматривать любую организацию;
+- пользователь может просматривать только ту организацию, в которой у него есть активное членство.
+
+**Path-параметры**
+- `partner_id` (`integer`, required) — идентификатор партнёра.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/partners/10 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `Partner`
+
+**Пример ответа (200)**
+
+```json
+{
+  "partner_id": 10,
+  "name": "ООО Паркинг Партнёр",
+  "slug": "parking-partner",
+  "contact_email": "ops@partner.example",
+  "contact_phone": "+79990001122",
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:30:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра партнёра. |
+| **404** | `Not Found`     | Партнёр не найден.                       |
+
+---
+
+## 3.6 `POST /partners`
+
+Создаёт новую партнёрскую организацию.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Требуемые разрешения**
+- `admin.partners.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `name` (`string`, required) — название организации.
+- `slug` (`string`, required) — уникальный строковый идентификатор.
+- `contact_email` (`string`, optional) — контактный email.
+- `contact_phone` (`string`, optional) — контактный телефон.
+
+**Пример запроса**
+
+```http
+POST /api/v1/partners HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "ООО Паркинг Партнёр",
+  "slug": "parking-partner",
+  "contact_email": "ops@partner.example",
+  "contact_phone": "+79990001122"
+}
+```
+
+**Response (201)**
+
+- `partner_id` (`integer`) — идентификатор созданной организации.
+
+**Пример ответа (201)**
+
+```json
+{
+  "partner_id": 10
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                       |
+|---------|------------------------|------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                       |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.        |
+| **403** | `Forbidden`            | Недостаточно прав для создания партнёра.       |
+| **409** | `Conflict`             | Партнёр с таким `slug` уже существует.         |
+| **422** | `Unprocessable Entity` | Ошибка валидации данных.                       |
+
+**Пример ответа (409)**
+
+```json
+{
+  "error_description": "Partner with this slug already exists"
+}
+```
+
+---
+
+## 3.7 `PUT /partners/<partner_id>`
+
+Обновляет данные партнёрской организации.
+
+Допускается частичное обновление.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.partners.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `name` (`string`, optional)
+- `slug` (`string`, optional)
+- `contact_email` (`string`, optional)
+- `contact_phone` (`string`, optional)
+- `is_active` (`boolean`, optional)
+
+**Пример запроса**
+
+```http
+PUT /api/v1/partners/10 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "contact_email": "support@partner.example",
+  "is_active": true
+}
+```
+
+**Response (200)** — объект `Partner`
+
+**Пример ответа (200)**
+
+```json
+{
+  "partner_id": 10,
+  "name": "ООО Паркинг Партнёр",
+  "slug": "parking-partner",
+  "contact_email": "support@partner.example",
+  "contact_phone": "+79990001122",
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T12:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                        |
+|---------|------------------------|-------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                        |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.         |
+| **403** | `Forbidden`            | Недостаточно прав для изменения партнёра.       |
+| **404** | `Not Found`            | Партнёр не найден.                              |
+| **409** | `Conflict`             | Новый `slug` уже используется.                  |
+| **422** | `Unprocessable Entity` | Ошибка валидации данных.                        |
+
+---
+
+## 3.8 `DELETE /partners/<partner_id>`
+
+Деактивирует партнёрскую организацию.
+
+Физическое удаление организации в MVP не выполняется.  
+Эндпоинт переводит партнёра в состояние `is_active = false`.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.partners.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/partners/10 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                     |
+|---------|-----------------|----------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.      |
+| **403** | `Forbidden`     | Недостаточно прав для деактивации партнёра.  |
+| **404** | `Not Found`     | Партнёр не найден.                           |
+
+---
+
+## 3.9 `GET /partners/<partner_id>/members`
+
+Возвращает список сотрудников партнёрской организации.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_members.view`
+
+**Условия доступа**
+- пользователь должен иметь активное членство в целевой организации;
+- либо обладать разрешением `admin.partners.view`.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+- `q` (`string`) — поиск по `email` или `full_name`;
+- `is_active` (`boolean`) — фильтр по статусу членства;
+- `role` (`string`) — фильтр по роли в партнёрской организации;
+- `top` (`integer`, 1..100)
+- `offset` (`integer`, >=0)
+
+**Response (200)**
+
+- `items` (`PartnerMembership[]`) — список членств.
+- `total` (`integer`) — общее количество по фильтру.
+- `top` (`integer`)
+- `offset` (`integer`)
+
+**Пример запроса**
+
+```http
+GET /api/v1/partners/10/members?is_active=true&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "partner_id": 10,
+      "user_id": 123,
+      "role": "partner_manager",
+      "permissions": [
+        "sources.create",
+        "sources.view",
+        "sources.update",
+        "cameras.create",
+        "cameras.view",
+        "cameras.update",
+        "zones.create",
+        "zones.view",
+        "zones.update"
+      ],
+      "read_scope": "own_or_assigned",
+      "write_scope": "own_or_assigned",
+      "delete_scope": "own",
+      "is_active": true,
+      "created_at": "2026-04-06T10:00:00Z",
+      "updated_at": "2026-04-06T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                      |
+|---------|-----------------|-----------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра сотрудников.  |
+| **404** | `Not Found`     | Партнёр не найден.                            |
+
+---
+
+## 3.10 `POST /partners/<partner_id>/members`
+
+Добавляет пользователя в партнёрскую организацию.
+
+Эндпоинт используется для добавления **уже существующего пользователя** в организацию.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_members.invite`
+- `partner_access.manage`
+
+**Условия доступа**
+- пользователь должен иметь активное членство в целевой организации;
+- либо обладать разрешением `admin.partners.manage`.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `user_id` (`integer`, required) — идентификатор существующего пользователя.
+- `role` (`string`, required) — роль в организации.
+- `permissions` (`string[]`, required) — разрешения в рамках организации.
+- `read_scope` (`string`, required) — область доступа на чтение.
+- `write_scope` (`string`, required) — область доступа на изменение.
+- `delete_scope` (`string`, required) — область доступа на удаление.
+
+**Пример запроса**
+
+```http
+POST /api/v1/partners/10/members HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "user_id": 123,
+  "role": "partner_viewer",
+  "permissions": [
+    "sources.view",
+    "cameras.view",
+    "zones.view",
+    "analytics.view",
+    "partner_statistics.view"
+  ],
+  "read_scope": "partner_all",
+  "write_scope": "none",
+  "delete_scope": "none"
+}
+```
+
+**Response (201)** — объект `PartnerMembership`
+
+**Пример ответа (201)**
+
+```json
+{
+  "partner_id": 10,
+  "user_id": 123,
+  "role": "partner_viewer",
+  "permissions": [
+    "sources.view",
+    "cameras.view",
+    "zones.view",
+    "analytics.view",
+    "partner_statistics.view"
+  ],
+  "read_scope": "partner_all",
+  "write_scope": "none",
+  "delete_scope": "none",
+  "is_active": true,
+  "created_at": "2026-04-06T13:00:00Z",
+  "updated_at": "2026-04-06T13:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                        |
+|---------|------------------------|-------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                        |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.         |
+| **403** | `Forbidden`            | Недостаточно прав для добавления сотрудника.    |
+| **404** | `Not Found`            | Партнёр или пользователь не найден.             |
+| **409** | `Conflict`             | Членство уже существует.                        |
+| **422** | `Unprocessable Entity` | Ошибка валидации роли, разрешений или scope.    |
+
+---
+
+## 3.11 `GET /partners/<partner_id>/members/<user_id>`
+
+Возвращает членство пользователя в партнёрской организации.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+- `user_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_members.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/partners/10/members/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `PartnerMembership`
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                       |
+|---------|-----------------|------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.        |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра членства.      |
+| **404** | `Not Found`     | Партнёр или членство не найдено.               |
+
+---
+
+## 3.12 `PUT /partners/<partner_id>/members/<user_id>`
+
+Обновляет членство пользователя в партнёрской организации.
+
+Допускается частичное обновление.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+- `user_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_members.update`
+- `partner_access.manage`
+
+**Условия доступа**
+- пользователь должен иметь активное членство в целевой организации;
+- либо обладать разрешением `admin.partners.manage`.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `role` (`string`, optional)
+- `permissions` (`string[]`, optional)
+- `read_scope` (`string`, optional)
+- `write_scope` (`string`, optional)
+- `delete_scope` (`string`, optional)
+- `is_active` (`boolean`, optional)
+
+**Пример запроса**
+
+```http
+PUT /api/v1/partners/10/members/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "permissions": [
+    "sources.view",
+    "cameras.view",
+    "zones.view"
+  ],
+  "read_scope": "partner_all",
+  "write_scope": "none",
+  "delete_scope": "none",
+  "is_active": true
+}
+```
+
+**Response (200)** — объект `PartnerMembership`
+
+**Пример ответа (200)**
+
+```json
+{
+  "partner_id": 10,
+  "user_id": 123,
+  "role": "partner_viewer",
+  "permissions": [
+    "sources.view",
+    "cameras.view",
+    "zones.view"
+  ],
+  "read_scope": "partner_all",
+  "write_scope": "none",
+  "delete_scope": "none",
+  "is_active": true,
+  "created_at": "2026-04-06T13:00:00Z",
+  "updated_at": "2026-04-06T14:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                      |
+|---------|------------------------|-----------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                      |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`            | Недостаточно прав для изменения членства.     |
+| **404** | `Not Found`            | Партнёр или членство не найдено.              |
+| **422** | `Unprocessable Entity` | Ошибка валидации роли, разрешений или scope.  |
+
+---
+
+## 3.13 `DELETE /partners/<partner_id>/members/<user_id>`
+
+Отключает пользователя от партнёрской организации.
+
+Физическое удаление членства в MVP не выполняется.  
+Эндпоинт переводит членство в состояние `is_active = false`.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+- `user_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_members.disable`
+
+**Условия доступа**
+- пользователь должен иметь активное членство в целевой организации;
+- либо обладать разрешением `admin.partners.manage`.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/partners/10/members/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                      |
+|---------|-----------------|-----------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`     | Недостаточно прав для отключения сотрудника.  |
+| **404** | `Not Found`     | Партнёр или членство не найдено.              |
+
+---
+
+## 3.14 Требования к другим разделам API
+
+Если эндпоинт другого раздела работает с объектами партнёра, рекомендуется хранить и возвращать:
+
+- `partner_id` (`integer`) — владелец объекта;
+- `created_by_user_id` (`integer`) — пользователь, создавший объект.
+
+Это позволяет корректно применять `read_scope`, `write_scope` и `delete_scope` к объектам партнёра.
+
+---

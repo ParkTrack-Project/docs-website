@@ -1,0 +1,526 @@
+---
+sidebar_position: 10
+title: Feedback
+---
+
+# 9. Feedback
+
+Раздел описывает пользовательский фидбек по результатам поиска парковки и построения маршрута.
+
+## 9.1 Назначение раздела
+
+Раздел `Feedback` используется для:
+
+- фиксации результата поиска парковки пользователем;
+- оценки качества рекомендованной парковочной зоны;
+- фиксации фактической парковочной зоны, выбранной пользователем;
+- фиксации начала поездки и освобождения парковочного места;
+- накопления данных для анализа качества маршрутизации и прогнозирования;
+- последующего использования этих данных в аналитике и улучшении ML-моделей.
+
+Фидбек может быть связан:
+
+- с маршрутом (`route_id`);
+- с рекомендованной парковочной зоной (`recommended_zone_id`);
+- с фактической парковочной зоной (`actual_zone_id`);
+- с зоной, которую пользователь освободил в начале движения (`departure_zone_id`);
+- с пользователем (`user_id`).
+
+---
+
+## 9.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `feedback.create` — создание фидбека;
+- `feedback.view` — просмотр собственного фидбека;
+- `feedback.update` — изменение собственного фидбека;
+- `feedback.delete` — удаление собственного фидбека;
+- `admin.analytics.view` — просмотр всех фидбеков в административных целях.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Фидбек, маршрут или зона не найдены.                                     |
+| **409** | `Conflict`               | Конфликт данных, например фидбек уже существует для маршрута.            |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: result is required"
+}
+```
+
+---
+
+## 9.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Результат поиска парковки
+
+Поле `result` описывает исход сценария пользователя.
+
+Поддерживаемые значения:
+
+- `found_parking` — пользователь успешно нашёл парковку;
+- `not_found` — пользователь не смог припарковаться;
+- `cancelled` — пользователь отменил сценарий;
+- `other` — иной результат.
+
+### Тип фидбека
+
+Поле `feedback_type` описывает, к какому сценарию относится запись.
+
+Поддерживаемые значения:
+
+- `route_result` — фидбек по построенному маршруту;
+- `search_result` — фидбек по поиску без сохранённого маршрута;
+- `zone_feedback` — фидбек по конкретной парковочной зоне.
+
+---
+
+## 9.4 Модель `Feedback`
+
+Объект пользовательского фидбека.
+
+- `feedback_id` (`integer`) — уникальный идентификатор фидбека.
+- `user_id` (`integer`) — идентификатор пользователя.
+- `feedback_type` (`string`) — тип фидбека.
+- `route_id` (`integer | null`) — идентификатор маршрута.
+- `recommended_zone_id` (`integer | null`) — идентификатор парковочной зоны, рекомендованной системой.
+- `actual_zone_id` (`integer | null`) — идентификатор парковочной зоны, где пользователь фактически завершил поиск парковки.
+- `result` (`string`) — результат сценария.
+- `trip_started` (`boolean | null`) — начал ли пользователь поездку по сценарию.
+- `left_parking_space` (`boolean | null`) — освободил ли пользователь парковочное место в начале движения.
+- `departure_zone_id` (`integer | null`) — зона, которую пользователь освободил в начале движения, если она известна системе.
+- `departure_time` (`string | null`, ISO 8601) — время освобождения парковочного места.
+- `used_recommended_zone` (`boolean | null`) — поехал ли пользователь именно к рекомендованной зоне.
+- `parked_in_recommended_zone` (`boolean | null`) — удалось ли пользователю припарковаться именно в рекомендованной зоне.
+- `rating` (`integer | null`, `1..5`) — субъективная оценка качества рекомендации.
+- `comment` (`string | null`) — текстовый комментарий пользователя.
+- `submitted_at` (`string`, ISO 8601) — время отправки фидбека.
+- `created_at` (`string`, ISO 8601) — дата создания записи.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления записи.
+
+**Пояснение к полям**
+- `used_recommended_zone = true` означает, что пользователь реально поехал к рекомендованной зоне.
+- `parked_in_recommended_zone = true` означает, что пользователь в итоге припарковался именно в рекомендованной зоне.
+- `actual_zone_id` позволяет явно указать фактическую зону парковки, если она отличается от рекомендованной.
+
+**Пример**
+
+```json
+{
+  "feedback_id": 9001,
+  "user_id": 123,
+  "feedback_type": "route_result",
+  "route_id": 7001,
+  "recommended_zone_id": 1,
+  "actual_zone_id": 2,
+  "result": "found_parking",
+  "trip_started": true,
+  "left_parking_space": true,
+  "departure_zone_id": 15,
+  "departure_time": "2026-04-06T10:26:00Z",
+  "used_recommended_zone": true,
+  "parked_in_recommended_zone": false,
+  "rating": 4,
+  "comment": "Доехал до рекомендованной зоны, но припарковался рядом.",
+  "submitted_at": "2026-04-06T10:45:00Z",
+  "created_at": "2026-04-06T10:45:00Z",
+  "updated_at": "2026-04-06T10:45:00Z"
+}
+```
+
+---
+
+## 9.5 `GET /feedback`
+
+Возвращает список фидбеков.
+
+### Правила доступа
+- обычный пользователь может просматривать только свои записи;
+- администратор может просматривать все записи.
+
+**Требуемые разрешения**
+- `feedback.view` для собственных записей;
+- `admin.analytics.view` для всех записей.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `route_id` (`integer`) — фильтр по маршруту;
+- `recommended_zone_id` (`integer`) — фильтр по рекомендованной зоне;
+- `actual_zone_id` (`integer`) — фильтр по фактической зоне;
+- `departure_zone_id` (`integer`) — фильтр по зоне отправления;
+- `user_id` (`integer`) — фильтр по пользователю, доступен только админу;
+- `feedback_type` (`string`) — фильтр по типу фидбека;
+- `result` (`string`) — фильтр по результату;
+- `from` (`string`, ISO 8601) — нижняя граница интервала по `submitted_at`;
+- `to` (`string`, ISO 8601) — верхняя граница интервала по `submitted_at`;
+- `top` (`integer`, 1..100`) — максимальное число элементов;
+- `offset` (`integer`, >=0) — смещение для пагинации.
+
+**Пример запроса**
+
+```http
+GET /api/v1/feedback?route_id=7001&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- `items` (`Feedback[]`) — список фидбеков.
+- `total` (`integer`) — общее количество записей по фильтру.
+- `top` (`integer`) — значение `top`.
+- `offset` (`integer`) — значение `offset`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "feedback_id": 9001,
+      "user_id": 123,
+      "feedback_type": "route_result",
+      "route_id": 7001,
+      "recommended_zone_id": 1,
+      "actual_zone_id": 2,
+      "result": "found_parking",
+      "trip_started": true,
+      "left_parking_space": true,
+      "departure_zone_id": 15,
+      "departure_time": "2026-04-06T10:26:00Z",
+      "used_recommended_zone": true,
+      "parked_in_recommended_zone": false,
+      "rating": 4,
+      "comment": "Доехал до рекомендованной зоны, но припарковался рядом.",
+      "submitted_at": "2026-04-06T10:45:00Z",
+      "created_at": "2026-04-06T10:45:00Z",
+      "updated_at": "2026-04-06T10:45:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                  |
+|---------|-----------------|-------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.   |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра фидбека.  |
+
+---
+
+## 9.6 `POST /feedback/new`
+
+Создаёт новый пользовательский фидбек.
+
+**Требуемые разрешения**
+- `feedback.create`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body (required)**
+
+- `feedback_type` (`string`) — тип фидбека.
+- `result` (`string`) — результат сценария.
+
+**Request body (optional)**
+
+- `route_id` (`integer`) — идентификатор маршрута.
+- `recommended_zone_id` (`integer`) — рекомендованная зонa.
+- `actual_zone_id` (`integer`) — фактическая зонa.
+- `trip_started` (`boolean`) — начал ли пользователь поездку.
+- `left_parking_space` (`boolean`) — освободил ли пользователь место в начале движения.
+- `departure_zone_id` (`integer`) — зона, которую пользователь освободил.
+- `departure_time` (`string`, ISO 8601) — время освобождения места.
+- `used_recommended_zone` (`boolean`) — поехал ли пользователь к рекомендованной зоне.
+- `parked_in_recommended_zone` (`boolean`) — припарковался ли пользователь в рекомендованной зоне.
+- `rating` (`integer`, `1..5`) — оценка качества рекомендации.
+- `comment` (`string`) — комментарий пользователя.
+- `submitted_at` (`string`, ISO 8601) — время отправки. Если не передано, сервер использует текущее время.
+
+### Дополнительные правила
+- если передан `route_id`, сервер должен проверить, что маршрут принадлежит текущему пользователю;
+- если передан `recommended_zone_id`, сервер должен проверить доступность зоны пользователю;
+- если передан `actual_zone_id`, сервер должен проверить доступность зоны пользователю;
+- если передан `departure_zone_id`, сервер должен проверить доступность зоны пользователю;
+- в MVP допускается не более одного активного фидбека на один `route_id` от одного пользователя.
+
+**Пример запроса**
+
+```http
+POST /api/v1/feedback/new HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "feedback_type": "route_result",
+  "route_id": 7001,
+  "recommended_zone_id": 1,
+  "actual_zone_id": 2,
+  "result": "found_parking",
+  "trip_started": true,
+  "left_parking_space": true,
+  "departure_zone_id": 15,
+  "departure_time": "2026-04-06T10:26:00Z",
+  "used_recommended_zone": true,
+  "parked_in_recommended_zone": false,
+  "rating": 4,
+  "comment": "Доехал до рекомендованной зоны, но припарковался рядом."
+}
+```
+
+**Response (201)**
+
+- `feedback_id` (`integer`) — идентификатор созданной записи.
+
+**Пример ответа (201)**
+
+```json
+{
+  "feedback_id": 9001
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                      | Описание                                                            |
+|---------|--------------------------|---------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидное тело запроса.                                            |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден или истёк.                             |
+| **403** | `Forbidden`              | Недостаточно прав для создания фидбека.                             |
+| **404** | `Not Found`              | Маршрут или зона не найдены.                                        |
+| **409** | `Conflict`               | Фидбек для данного маршрута уже существует.                         |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`.                                            |
+| **422** | `Unprocessable Entity`   | Ошибка валидации, например `rating` вне диапазона `1..5`.           |
+
+**Пример ответа (409)**
+
+```json
+{
+  "error_description": "Feedback for this route already exists"
+}
+```
+
+---
+
+## 9.7 `GET /feedback/<feedback_id>`
+
+Возвращает фидбек по его идентификатору.
+
+### Правила доступа
+- пользователь может просматривать только свои записи;
+- администратор может просматривать любые записи.
+
+**Path-параметры**
+- `feedback_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `feedback.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/feedback/9001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `Feedback`
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра фидбека. |
+| **404** | `Not Found`     | Фидбек не найден.                        |
+
+---
+
+## 9.8 `PUT /feedback/<feedback_id>`
+
+Обновляет фидбек.
+
+Допускается частичное обновление.
+
+### Правила доступа
+- пользователь может изменять только свои записи;
+- администратор может изменять любые записи.
+
+**Path-параметры**
+- `feedback_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `feedback.update` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `result` (`string, optional`)
+- `trip_started` (`boolean, optional`)
+- `left_parking_space` (`boolean, optional`)
+- `departure_zone_id` (`integer | null, optional`)
+- `departure_time` (`string | null, ISO 8601, optional`)
+- `used_recommended_zone` (`boolean, optional`)
+- `parked_in_recommended_zone` (`boolean, optional`)
+- `actual_zone_id` (`integer | null, optional`)
+- `rating` (`integer, optional`)
+- `comment` (`string | null, optional`)
+- `submitted_at` (`string, ISO 8601, optional`)
+
+> Поля `feedback_id`, `user_id`, `feedback_type`, `route_id`, `recommended_zone_id`, `created_at`, `updated_at` изменяются сервером и игнорируются в теле запроса.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/feedback/9001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "rating": 5,
+  "actual_zone_id": 1,
+  "parked_in_recommended_zone": true,
+  "comment": "Маршрут оказался очень точным."
+}
+```
+
+**Response (200)** — объект `Feedback`
+
+**Пример ответа (200)**
+
+```json
+{
+  "feedback_id": 9001,
+  "user_id": 123,
+  "feedback_type": "route_result",
+  "route_id": 7001,
+  "recommended_zone_id": 1,
+  "actual_zone_id": 1,
+  "result": "found_parking",
+  "trip_started": true,
+  "left_parking_space": true,
+  "departure_zone_id": 15,
+  "departure_time": "2026-04-06T10:26:00Z",
+  "used_recommended_zone": true,
+  "parked_in_recommended_zone": true,
+  "rating": 5,
+  "comment": "Маршрут оказался очень точным.",
+  "submitted_at": "2026-04-06T10:45:00Z",
+  "created_at": "2026-04-06T10:45:00Z",
+  "updated_at": "2026-04-06T10:50:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                 |
+|---------|------------------------|------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                 |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`            | Недостаточно прав для изменения фидбека. |
+| **404** | `Not Found`            | Фидбек не найден.                        |
+| **422** | `Unprocessable Entity` | Ошибка валидации.                        |
+
+---
+
+## 9.9 `DELETE /feedback/<feedback_id>`
+
+Удаляет фидбек.
+
+В MVP удаление может быть реализовано как мягкое удаление.
+
+### Правила доступа
+- пользователь может удалять только свои записи;
+- администратор может удалять любые записи.
+
+**Path-параметры**
+- `feedback_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `feedback.delete` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/feedback/9001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для удаления фидбека.  |
+| **404** | `Not Found`     | Фидбек не найден.                        |
+
+---
+
+## 9.10 Требования к другим разделам API
+
+Раздел `Routing` рекомендуется использовать как основной источник `route_id` для фидбека по маршруту.
+
+Раздел `Parking Zones` рекомендуется использовать как основной источник:
+- `recommended_zone_id`
+- `actual_zone_id`
+- `departure_zone_id`
+
+Записи из раздела `Feedback` рекомендуется использовать в разделах аналитики и обучения моделей как дополнительный пользовательский сигнал о:
+- принятии рекомендации;
+- фактическом успехе рекомендации;
+- освобождении парковочного места в начале движения.
+
+---

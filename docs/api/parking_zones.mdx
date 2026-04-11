@@ -1,55 +1,308 @@
 ---
-sidebar_position: 3
+sidebar_position: 6
 title: Parking Zones
 ---
 
-import HighlightParam from '@site/src/components/HighlightParam';
-import JSONHighlight from '@site/src/components/JSONHighlight';
+# 5. Parking Zones
 
-# 3. Parking Zones
+Раздел описывает парковочные зоны, их геометрию на карте, геометрию в изображении камеры и текущую оценку занятости.
 
-## Модель `Zone`
+## 5.1 Совместимость с текущей реализацией
 
-Объект зоны в ответах API:
+Раздел сохраняет существующие основные эндпоинты:
 
-- **zone_id** (`integer`) — уникальный идентификатор зоны.
-- **camera_id** (`integer`) — ID камеры, к которой относится зона.
-- **zone_type** (`string`, enum: `parallel` | `standard`) — тип парковки.
-- **capacity** (`integer`, ≥0) — вместимость (количество мест).
-- **occupied** (`integer`, ≥0, ≤`capacity`) — текущее число занятых мест.
-- **confidence** (`float`, 0..1) — достоверность оценки `occupied`.
-- **pay** (`integer`, ≥0) — стоимость в рублях/час (0 — бесплатно).
-- **points** (`list[4]`) — опорные точки зоны (карта + пиксели изображения), по часовой:
-  - **latitude** (`float`, -90..90)
-  - **longitude** (`float`, -180..180)
-  - **x** (`int`, ≥0)
-  - **y** (`int`, ≥0)
-- <HighlightParam>**occupancy_updated_at** (`string`, ISO 8601)</HighlightParam>
-- **created_at** (`string`, ISO 8601)
-- **updated_at** (`string`, ISO 8601)
+- `GET /zones`
+- `POST /zones/new`
+- `GET /zones/<zone_id>`
+- `PUT /zones/<zone_id>`
+- `DELETE /zones/<zone_id>`
 
-> Для MVP предполагается **ровно 4** точки зоны (в порядке движения по часовой стрелке). Для `parallel` визуализация может использовать середины коротких сторон как линию.
+Для сохранения совместимости:
+
+- существующие пути эндпоинтов сохранены;
+- сохранены ключевые поля бизнес-модели: `zone_id`, `camera_id`, `zone_type`, `capacity`, `occupied`, `confidence`, `pay`, `occupancy_updated_at`;
+- вместо старого поля `points` используются:
+  - `geometry` — геометрия зоны на карте;
+  - `image_polygon` — геометрия зоны в пиксельных координатах изображения камеры.
+
+> В новом контракте поле `points` не используется.
 
 ---
 
-### 3.1 `GET /zones` (Auth, NoAuth)
+## 5.2 Общие правила
 
-Возвращает список всех парковочных зон <HighlightParam>(авторизация не обязательна)</HighlightParam>.
+### Авторизация
 
-**Headers**
-- `Authorization: Bearer <token>`
+Все эндпоинты раздела требуют авторизации.
 
-<HighlightParam>В случае отсутствия токена авторизации возвращаются все поля кроме `camera_id`.</HighlightParam>
+```http
+Authorization: Bearer <access_token>
+```
 
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `zones.view` — просмотр зон;
+- `zones.create` — создание зон;
+- `zones.update` — изменение зон;
+- `zones.delete` — удаление зон.
+
+### Правила видимости данных
+
+Сервер возвращает только те зоны, которые доступны текущему пользователю в рамках его глобальных прав, членства в партнёрской организации и области доступа к данным.
+
+Для зон партнёров рекомендуется использовать:
+
+- `partner_id` — владелец зоны;
+- `created_by_user_id` — пользователь, создавший зону.
+
+Это позволяет применять `read_scope`, `write_scope` и `delete_scope` к зонам партнёра.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                               |
+|---------|--------------------------|------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                               |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.              |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.              |
+| **404** | `Not Found`              | Зона или связанная камера не найдена.                                  |
+| **409** | `Conflict`               | Конфликт данных.                                                       |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                 |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                      |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                         |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                            |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: geometry must be a valid polygon"
+}
+```
+
+---
+
+## 5.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Геометрия зоны на карте
+
+Поле `geometry` задаётся в формате GeoJSON Polygon.
+
+Правила:
+
+- используется объект вида `{ "type": "Polygon", "coordinates": [...] }`;
+- координаты задаются в формате `[longitude, latitude]`;
+- внешний контур должен быть замкнут;
+- первая и последняя координаты внешнего контура должны совпадать.
+
+### Геометрия зоны в изображении камеры
+
+Поле `image_polygon` задаёт контур зоны в координатах изображения камеры.
+
+Правила:
+
+- это массив из 4 вершин;
+- каждая вершина задаётся как `[x, y]`;
+- вершины должны идти по часовой стрелке;
+- значения `x` и `y` должны быть целыми числами `>= 0`.
+
+---
+
+## 5.4 Модель `Zone`
+
+Объект зоны в ответах API.
+
+### Базовые поля
+- `zone_id` (`integer`) — уникальный идентификатор зоны.
+- `camera_id` (`integer`) — ID камеры, к которой относится зона.
+- `zone_type` (`string`, enum: `parallel` | `standard`) — тип парковки по способу постановки.
+- `capacity` (`integer`, `>= 0`) — вместимость зоны.
+- `occupied` (`integer`, `>= 0`, `<= capacity`) — текущее число занятых мест.
+- `free_count` (`integer`, `>= 0`) — текущее число свободных мест.
+- `confidence` (`float`, `0..1`) — достоверность оценки `occupied`.
+- `pay` (`integer`, `>= 0`) — стоимость в рублях в час.
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `image_polygon` (`array[4]`) — геометрия зоны в пиксельных координатах изображения камеры.
+- `occupancy_updated_at` (`string`, ISO 8601) — время последнего обновления оценки занятости.
+- `created_at` (`string`, ISO 8601) — дата создания.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления.
+
+### Дополнительные поля
+- `partner_id` (`integer | null`) — идентификатор партнёра-владельца зоны.
+- `created_by_user_id` (`integer | null`) — идентификатор пользователя, создавшего зону.
+- `is_active` (`boolean`) — активна ли зона.
+- `location_type` (`string | null`) — тип расположения зоны. Рекомендуемые значения:
+  - `street`
+  - `open_lot`
+  - `underground`
+  - `multilevel`
+  - `mall`
+  - `private`
+- `is_accessible` (`boolean | null`) — относится ли зона к парковке для маломобильных пользователей.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности:
+  - `very_low`
+  - `low`
+  - `medium`
+  - `high`
+
+> Поля `partner_id`, `created_by_user_id`, `is_active`, `location_type`, `is_accessible`, `confidence_level` являются дополнительными.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "occupied": 5,
+  "free_count": 2,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "pay": 0,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "image_polygon": [
+    [45, 23],
+    [87, 25],
+    [79, 149],
+    [32, 145]
+  ],
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "location_type": "street",
+  "is_accessible": false,
+  "occupancy_updated_at": "2026-04-06T10:10:00Z",
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:10:00Z"
+}
+```
+
+---
+
+## 5.5 Модель `ZoneMapItem`
+
+Облегчённая модель зоны для отображения на карте.
+
+- `zone_id` (`integer`) — уникальный идентификатор зоны.
+- `zone_type` (`string`) — тип парковки.
+- `capacity` (`integer`) — вместимость зоны.
+- `occupied` (`integer`) — число занятых мест.
+- `free_count` (`integer`) — число свободных мест.
+- `confidence` (`float`) — достоверность оценки занятости.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности.
+- `pay` (`integer`) — стоимость парковки в рублях в час.
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `location_type` (`string | null`) — тип расположения.
+- `is_accessible` (`boolean | null`) — признак специальной парковки.
+- `occupancy_updated_at` (`string`, ISO 8601) — время обновления занятости.
+- `is_active` (`boolean`) — активна ли зона.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "occupied": 5,
+  "free_count": 2,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "pay": 0,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "location_type": "street",
+  "is_accessible": false,
+  "occupancy_updated_at": "2026-04-06T10:10:00Z",
+  "is_active": true
+}
+```
+
+---
+
+## 5.6 `GET /zones`
+
+Возвращает список парковочных зон, доступных текущему пользователю.
+
+**Требуемые разрешения**
+- `zones.view`
 
 **Query-параметры (необязательные)**
-- **camera_id** (`integer`) — вернуть зоны только указанной камеры.
-- **min_free_count** (`integer`) — фильтр по минимальному количеству свободных мест в зоне.
-- **max_pay** (`integer`) — фильтр по максимальной цене парковки в зоне за час.
+
+- `camera_id` (`integer`) — вернуть зоны только указанной камеры.
+- `partner_id` (`integer`) — вернуть зоны только указанного партнёра.
+- `zone_type` (`string`) — фильтр по типу парковки.
+- `is_active` (`boolean`) — фильтр по активности зоны.
+- `min_free_count` (`integer`) — фильтр по минимальному числу свободных мест.
+- `max_pay` (`integer`) — фильтр по максимальной стоимости парковки в час.
+- `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
+- `view` (`string`) — режим ответа. Поддерживаемые значения:
+  - `full` — полная модель зоны (по умолчанию);
+  - `map` — облегчённая модель для карты.
+
+**Пример `bbox`**
+
+```text
+30.30,59.92,30.35,59.97
+```
+
+> Параметр `bbox` рекомендуется использовать при загрузке зон для карты, чтобы не запрашивать все зоны сразу.
+
+**Пример запроса — полная модель**
+
+```http
+GET /api/v1/zones?camera_id=1 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример запроса — режим карты**
+
+```http
+GET /api/v1/zones?bbox=30.30,59.92,30.35,59.97&view=map HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
 
 **Response (200)**
-Массив объектов **Zone**:
-<JSONHighlight data={
+
+- при `view=full` — массив объектов `Zone`;
+- при `view=map` — массив объектов `ZoneMapItem`.
+
+**Пример ответа (200) — `view=full`**
+
+```json
 [
   {
     "zone_id": 1,
@@ -57,65 +310,126 @@ import JSONHighlight from '@site/src/components/JSONHighlight';
     "zone_type": "parallel",
     "capacity": 7,
     "occupied": 5,
+    "free_count": 2,
     "confidence": 0.76,
+    "confidence_level": "medium",
     "pay": 0,
-    "points": [
-      {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
-      {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
-      {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
-      {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "image_polygon": [
+      [45, 23],
+      [87, 25],
+      [79, 149],
+      [32, 145]
     ],
-    "occupancy_updated_at": "2025-10-08T08:10:00Z",
-    "created_at": "2025-10-08T08:00:00Z",
-    "updated_at": "2025-10-08T08:10:00Z"
+    "partner_id": 10,
+    "created_by_user_id": 123,
+    "is_active": true,
+    "location_type": "street",
+    "is_accessible": false,
+    "occupancy_updated_at": "2026-04-06T10:10:00Z",
+    "created_at": "2026-04-06T10:00:00Z",
+    "updated_at": "2026-04-06T10:10:00Z"
   }
-]}
-highlight={["occupancy_updated_at"]}/>
+]
+```
+
+**Пример ответа (200) — `view=map`**
+
+```json
+[
+  {
+    "zone_id": 1,
+    "zone_type": "parallel",
+    "capacity": 7,
+    "occupied": 5,
+    "free_count": 2,
+    "confidence": 0.76,
+    "confidence_level": "medium",
+    "pay": 0,
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "location_type": "street",
+    "is_accessible": false,
+    "occupancy_updated_at": "2026-04-06T10:10:00Z",
+    "is_active": true
+  }
+]
+```
 
 **Ошибки**
 
-см. [общие ошибки](/docs/api/#общие-ошибки).
-
-**Пример запроса**
-```http
-GET /api/v0/zones?camera_id=1 HTTP/1.1
-Host: api.parktrack.live
-Authorization: Bearer <token>
-```
+| Код     | Тип                    | Описание                                                         |
+|---------|------------------------|------------------------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                          |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра зон.                             |
+| **422** | `Unprocessable Entity` | Валидация не пройдена, например `bbox` имеет неверный формат.    |
 
 ---
 
-### 3.2 `POST /zones/new`
+## 5.7 `POST /zones/new`
 
 Создаёт новую парковочную зону.
 
+Эндпоинт сохранён без изменения пути для совместимости с текущим кодом.
+
+**Требуемые разрешения**
+- `zones.create`
+
+**Требуемая область доступа**
+- `write_scope` должен разрешать создание зоны в выбранной области данных.
+
 **Headers**
+- `Authorization: Bearer <access_token>`
 - `Content-Type: application/json`
-- `Authorization: Bearer <token>`
 
 **Request body (required)**
-- **camera_id** (`integer`) — существующий ID камеры.
-- **zone_type** (`string`) — `parallel` или `standard`.
-- **capacity** (`integer`, ≥0)
-- **pay** (`integer`, ≥0)
-- **points** (`list[4]`) — четыре точки (по часовой):
-  - **latitude** (`float`, -90..90)
-  - **longitude** (`float`, -180..180)
-  - **x** (`int`, ≥0)
-  - **y** (`int`, ≥0)
 
-*Валидация*
-- Ровно 4 точки.
-- Координаты широты/долготы в допустимых диапазонах.
-- `capacity >= 0`, `pay >= 0`.
-- Сервер может дополнительно валидировать геометрию (невырожденный четырёхугольник).
+### Обязательные поля
+- `camera_id` (`integer`) — существующий ID камеры.
+- `zone_type` (`string`) — `parallel` или `standard`.
+- `capacity` (`integer`, `>= 0`)
+- `pay` (`integer`, `>= 0`)
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `image_polygon` (`array[4]`) — геометрия зоны в координатах изображения камеры.
 
-**Response (201)**
-- **zone_id** (`integer`) — ID созданной зоны.
+### Дополнительные поля
+- `location_type` (`string`, optional)
+- `is_accessible` (`boolean`, optional)
+
+**Валидация**
+- `camera_id` должен ссылаться на существующую камеру;
+- `geometry` должен быть корректным GeoJSON Polygon;
+- `image_polygon` должен содержать ровно 4 вершины;
+- координаты `latitude` / `longitude` в `geometry` должны быть в допустимых диапазонах;
+- `x` и `y` в `image_polygon` должны быть `>= 0`;
+- `capacity >= 0`, `pay >= 0`;
+- сервер может дополнительно валидировать геометрию зоны как невырожденный полигон.
 
 **Пример запроса**
+
 ```http
-POST /api/v0/zones/new HTTP/1.1
+POST /api/v1/zones/new HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
@@ -125,143 +439,177 @@ Authorization: Bearer <token>
   "zone_type": "parallel",
   "capacity": 7,
   "pay": 0,
-  "points": [
-    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
-    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
-    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
-    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
-  ]
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "image_polygon": [
+    [45, 23],
+    [87, 25],
+    [79, 149],
+    [32, 145]
+  ],
+  "location_type": "street",
+  "is_accessible": false
 }
 ```
 
+**Response (201)**
+
+- `zone_id` (`integer`) — идентификатор созданной зоны.
+
 **Пример ответа (201)**
-```json
-{ "zone_id": 1 }
-```
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
-
-| Код     | Тип                      | Описание                                                                                                  |
-|---------|--------------------------|-----------------------------------------------------------------------------------------------------------|
-| **404** | `Not Found`              | Камера с указанным `camera_id` не существует.                                                             |
-| **422** | `Unprocessable Entity`   | Валидация не пройдена: недопустимые диапазоны координат, `points` не из 4 элементов, `capacity`/`pay` < 0. |
-
-**Формат тела ошибки (рекомендуется)**
 ```json
 {
-  "error_description": "Validation error: points[2].latitude must be between -90 and 90"
+  "zone_id": 1
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                 |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для создания зоны.                                     |
+| **404** | `Not Found`            | Камера с указанным `camera_id` не существует.                            |
+| **422** | `Unprocessable Entity` | Ошибка валидации геометрии, `image_polygon`, диапазонов или полей.       |
+
+**Пример ответа (422)**
+
+```json
+{
+  "error_description": "Validation error: image_polygon must contain exactly 4 vertices"
 }
 ```
 
 ---
 
-### 3.3 `GET /zones/<zone_id>` (Auth, NoAuth)
+## 5.8 `GET /zones/<zone_id>`
 
-Возвращает данные о конкретной парковочной зоне <HighlightParam>(авторизация не обязательна).</HighlightParam>
+Возвращает данные о конкретной парковочной зоне.
 
 **Path-параметры**
-- **zone_id** (`integer`, required)
+- `zone_id` (`integer`, required) — идентификатор зоны.
+
+**Требуемые разрешения**
+- `zones.view`
+
+**Требуемая область доступа**
+- `read_scope` должен включать целевую зону.
 
 **Headers**
-- `Authorization: Bearer <token>`
-
-<HighlightParam>В случае отсутствия токена авторизации возвращаются все поля кроме `camera_id`.</HighlightParam>
-
-**Response (200)** — объект **Zone**
-<JSONHighlight data={
-{
-  "zone_id": 1,
-  "camera_id": 1,
-  "zone_type": "parallel",
-  "capacity": 7,
-  "occupied": 5,
-  "confidence": 0.76,
-  "pay": 0,
-  "points": [
-    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
-    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
-    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
-    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
-  ],
-  "occupancy_updated_at": "2025-10-08T08:10:00Z",
-  "created_at": "2025-10-08T08:00:00Z",
-  "updated_at": "2025-10-08T08:10:00Z"
-}}
-highlight={["occupancy_updated_at"]}/>
-```
-
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
-
-| Код     | Тип         | Описание                           |
-|---------|-------------|------------------------------------|
-| **404** | `Not Found` | Зона с таким `zone_id` не найдена. |
+- `Authorization: Bearer <access_token>`
 
 **Пример запроса**
+
 ```http
-GET /api/v0/zones/1 HTTP/1.1
+GET /api/v1/zones/1 HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
----
+**Response (200)** — объект `Zone`
 
-### 3.4 `PUT /zones/<zone_id>`
+**Пример ответа (200)**
 
-Обновляет данные парковочной зоны. Разрешается частичное обновление (любое подмножество полей).
-
-**Path-параметры**
-- **zone_id** (`integer`, required)
-
-**Headers**
-- `Content-Type: application/json`
-- `Authorization: Bearer <token>`
-
-**Request body** *(минимум одно поле)*
-- **camera_id** (`integer`) — ID камеры (переназначение зоны).
-- **zone_type** (`string`, `parallel` | `standard`)
-- **capacity** (`integer`, ≥0)
-- **pay** (`integer`, ≥0)
-- **occupied** (`integer`, ≥0, ≤`capacity`)
-- **confidence** (`float`, 0..1)
-- **points** (`list[4]`) — четыре точки (см. структуру в 3.2)
-
-> Серверные поля `zone_id`, `created_at`, `updated_at` выставляются сервером и игнорируются в теле запроса.
-
-**Response (200)** — объект **Zone** после обновления
-<JSONHighlight data={
+```json
 {
   "zone_id": 1,
   "camera_id": 1,
   "zone_type": "parallel",
   "capacity": 7,
   "occupied": 5,
+  "free_count": 2,
   "confidence": 0.76,
+  "confidence_level": "medium",
   "pay": 0,
-  "points": [
-    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
-    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
-    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
-    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "image_polygon": [
+    [45, 23],
+    [87, 25],
+    [79, 149],
+    [32, 145]
   ],
-  "occupancy_updated_at": "2025-10-08T08:10:00Z",
-  "created_at": "2025-10-08T08:00:00Z",
-  "updated_at": "2025-10-08T09:02:11Z"
-}}
-highlight={["occupancy_updated_at"]}/>
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "location_type": "street",
+  "is_accessible": false,
+  "occupancy_updated_at": "2026-04-06T10:10:00Z",
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:10:00Z"
+}
 ```
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+**Ошибки**
 
-| Код     | Тип                      | Описание                                                                                                                                                 |
-|---------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **404** | `Not Found`              | `zone_id` не существует, либо (при смене `camera_id`) указанная камера не найдена.                                                                       |
-| **422** | `Unprocessable Entity`   | Валидация не пройдена: `capacity < 0`; `occupied < 0` или `occupied > capacity`; `confidence` вне `0..1`; `points` не из 4 элементов; неверные диапазоны координат. |
+| Код     | Тип             | Описание                                |
+|---------|-----------------|-----------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк. |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра зоны.   |
+| **404** | `Not Found`     | Зона не найдена.                        |
 
-**Примеры запросов**
+---
 
-*Частичное обновление занятости*
+## 5.9 `PUT /zones/<zone_id>`
+
+Обновляет данные парковочной зоны.
+
+Допускается частичное обновление.
+
+**Path-параметры**
+- `zone_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `zones.update`
+
+**Требуемая область доступа**
+- `write_scope` должен включать целевую зону.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `camera_id` (`integer, optional`) — ID камеры.
+- `zone_type` (`string, optional`) — `parallel` или `standard`.
+- `capacity` (`integer, optional`, `>= 0`)
+- `pay` (`integer, optional`, `>= 0`)
+- `occupied` (`integer, optional`, `>= 0`, `<= capacity`)
+- `confidence` (`float, optional`, `0..1`)
+- `geometry` (`GeoJSON Polygon, optional`) — геометрия зоны на карте.
+- `image_polygon` (`array[4], optional`) — геометрия зоны в координатах изображения камеры.
+- `location_type` (`string, optional`)
+- `is_accessible` (`boolean, optional`)
+- `is_active` (`boolean, optional`)
+
+> Поля `zone_id`, `free_count`, `created_at`, `updated_at`, `created_by_user_id`, `partner_id`, `occupancy_updated_at` изменяются сервером и игнорируются в теле запроса.
+
+**Пример запроса — частичное обновление занятости**
+
 ```http
-PUT /api/v0/zones/1 HTTP/1.1
+PUT /api/v1/zones/1 HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
@@ -272,28 +620,92 @@ Authorization: Bearer <token>
 }
 ```
 
-*Полное обновление геометрии/параметров*
+**Пример запроса — обновление геометрии**
+
 ```http
-PUT /api/v0/zones/1 HTTP/1.1
+PUT /api/v1/zones/1 HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
 
 {
-  "camera_id": 1,
-  "zone_type": "parallel",
-  "capacity": 7,
-  "pay": 0,
-  "points": [
-    {"latitude": 59.955976, "longitude": 30.309426, "x": 45, "y": 23},
-    {"latitude": 59.956008, "longitude": 30.309358, "x": 87, "y": 25},
-    {"latitude": 59.956231, "longitude": 30.309979, "x": 79, "y": 149},
-    {"latitude": 59.956201, "longitude": 30.310043, "x": 32, "y": 145}
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "image_polygon": [
+    [45, 23],
+    [87, 25],
+    [79, 149],
+    [32, 145]
   ]
 }
 ```
 
-**Формат тела ошибки (рекомендуется)**
+**Response (200)** — объект `Zone`
+
+**Пример ответа (200)**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "zone_type": "parallel",
+  "capacity": 7,
+  "occupied": 5,
+  "free_count": 2,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "pay": 0,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "image_polygon": [
+    [45, 23],
+    [87, 25],
+    [79, 149],
+    [32, 145]
+  ],
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "location_type": "street",
+  "is_accessible": false,
+  "occupancy_updated_at": "2026-04-06T10:10:00Z",
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T12:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                                  |
+|---------|------------------------|-------------------------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                                  |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                                   |
+| **403** | `Forbidden`            | Недостаточно прав для изменения зоны.                                                     |
+| **404** | `Not Found`            | `zone_id` не существует, либо указанная камера не найдена.                                |
+| **422** | `Unprocessable Entity` | Ошибка валидации: `capacity`, `occupied`, `confidence`, `geometry` или `image_polygon`.   |
+
+**Пример ответа (422)**
+
 ```json
 {
   "error_description": "Validation error: occupied must be between 0 and capacity"
@@ -302,37 +714,68 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.5 `DELETE /zones/<zone_id>`
+## 5.10 `DELETE /zones/<zone_id>`
 
 Удаляет парковочную зону.
 
 **Path-параметры**
-- **zone_id** (`integer`, required) — идентификатор зоны.
+- `zone_id` (`integer`, required) — идентификатор зоны.
+
+**Требуемые разрешения**
+- `zones.delete`
+
+**Требуемая область доступа**
+- `delete_scope` должен включать целевую зону.
 
 **Headers**
-- `Authorization: Bearer <token>`
-
-**Response (204)** — зона успешно удалена, тело отсутствует.
+- `Authorization: Bearer <access_token>`
 
 **Пример запроса**
+
 ```http
-DELETE /api/v0/zones/1 HTTP/1.1
+DELETE /api/v1/zones/1 HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
+**Response (204)**  
+Тело ответа отсутствует.
+
 **Ошибки**
 
-| Код     | Тип         | Описание                               |
-|---------|-------------|----------------------------------------|
-| **404** | `Not Found` | Зона с указанным `zone_id` не найдена. |
-| **409** | `Conflict`  | Удаление невозможно                    |
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для удаления зоны.     |
+| **404** | `Not Found`     | Зона не найдена.                         |
+| **409** | `Conflict`      | Удаление невозможно из-за зависимостей.  |
 
 **Пример ответа (404)**
+
 ```json
 {
   "error_description": "Zone not found"
 }
 ```
+
+---
+
+## 5.11 Требования к другим разделам API
+
+Если эндпоинт другого раздела работает с зоной как с геообъектом, рекомендуется использовать:
+
+- `zone_id` (`integer`)
+- `geometry` (`GeoJSON Polygon`)
+
+Если эндпоинт другого раздела работает с зоной как с сущностью, связанной с камерой и разметкой, рекомендуется использовать:
+
+- `zone_id` (`integer`)
+- `camera_id` (`integer`)
+- `image_polygon` (`array[4]`)
+
+Если фронтенду или служебному коду требуется временно восстановить старое представление из четырёх опорных точек, оно может быть получено:
+
+- из внешнего контура `geometry` для координат на карте;
+- из `image_polygon` для координат в изображении камеры.
 
 ---

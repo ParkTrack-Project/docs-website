@@ -1,12 +1,447 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 title: Auth
 ---
 
 # 1. Auth
-**v1 — System Token Only**
 
-Для **MVP** авторизации используется **один тип токена** — системный `access_token` с полным доступом ко всему API. Пользовательских аккаунтов и ролей нет.
+Раздел описывает аутентификацию, авторизацию и модель доступа в Smart Parking API.
 
-Сейчас токен можно получить только в Telegram-чате команды. В будущем возможна доработка процесса авторизации
-с генерацией токенов с настроенными правами доступа.
+## 1.1 Общие правила
+
+### Авторизация запросов
+
+Для защищённых эндпоинтов необходимо передавать токен доступа в заголовке:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+В MVP используется **только `access_token`**.  
+`refresh_token` не используется.
+
+### Доступ к карте
+
+В MVP **подписки не используются**.  
+Все авторизованные пользователи имеют доступ к базовому клиентскому функционалу, включая просмотр карты.
+
+### Общие ошибки авторизации
+
+| Код     | Тип                 | Описание                                                               |
+|---------|---------------------|------------------------------------------------------------------------|
+| **400** | `Bad Request`       | Невалидное тело запроса или отсутствуют обязательные поля.             |
+| **401** | `Unauthorized`      | Токен отсутствует, невалиден, истёк или сессия завершена.              |
+| **403** | `Forbidden`         | Токен валиден, но у субъекта недостаточно прав для выполнения действия. |
+| **409** | `Conflict`          | Конфликт данных, например email уже используется.                      |
+| **422** | `Unprocessable Entity` | Ошибка валидации.                                                   |
+| **429** | `Too Many Requests` | Слишком много попыток входа.                                           |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Missing or invalid access token"
+}
+```
+
+---
+
+## 1.2 Модель доступа
+
+Доступ к API определяется через:
+
+- глобальные роли пользователя;
+- членство в партнёрских организациях;
+- разрешения (`permissions`);
+- область доступа к данным (`scope`).
+
+### Глобальные роли
+
+- `user` — обычный пользователь;
+- `admin` — администратор платформы.
+
+### Роли в партнёрской организации
+
+- `partner_owner`
+- `partner_admin`
+- `partner_manager`
+- `partner_analyst`
+- `partner_viewer`
+
+### Разрешения (`permissions`)
+
+#### Базовый клиентский доступ
+- `users.me.view`
+- `users.me.update`
+- `users.password.update`
+- `map.view`
+- `zones.view`
+- `occupancy.view`
+- `forecasts.view`
+- `routing.create`
+- `feedback.create`
+
+#### Источники данных
+- `sources.create`
+- `sources.view`
+- `sources.update`
+- `sources.delete`
+
+#### Камеры
+- `cameras.create`
+- `cameras.view`
+- `cameras.update`
+- `cameras.delete`
+
+#### Парковочные зоны
+- `zones.create`
+- `zones.update`
+- `zones.delete`
+
+#### Статистика и аналитика
+- `analytics.view`
+- `partner_statistics.view`
+
+#### Управление пользователями партнёра
+- `partner_members.view`
+- `partner_members.invite`
+- `partner_members.update`
+- `partner_members.disable`
+- `partner_access.manage`
+
+#### Административные права платформы
+- `admin.users.view`
+- `admin.users.manage`
+- `admin.partners.view`
+- `admin.partners.manage`
+- `admin.system.view`
+- `admin.system.manage`
+- `admin.monitoring.view`
+- `admin.analytics.view`
+
+### Область доступа к данным (`scope`)
+
+Для операций чтения, изменения и удаления используется область доступа:
+
+- `none` — доступ отсутствует;
+- `own` — только объекты, созданные пользователем;
+- `assigned` — только объекты, явно назначенные пользователю;
+- `own_or_assigned` — собственные и назначенные объекты;
+- `partner_all` — все объекты партнёрской организации;
+- `global_all` — все объекты системы.
+
+### Правило проверки доступа
+
+Для защищённого эндпоинта сервер проверяет:
+
+1. валидность токена;
+2. наличие требуемого разрешения;
+3. принадлежность ресурса нужной области доступа.
+
+---
+
+## 1.3 Модель `PartnerMembership`
+
+Используется в ответах Auth API для описания прав пользователя внутри партнёрской организации.
+
+- `partner_id` (`integer`) — идентификатор партнёрской организации.
+- `role` (`string`) — роль пользователя в организации.
+- `permissions` (`string[]`) — список разрешений в рамках этой организации.
+- `read_scope` (`string`) — область доступа на чтение.
+- `write_scope` (`string`) — область доступа на изменение.
+- `delete_scope` (`string`) — область доступа на удаление.
+
+Пример:
+
+```json
+{
+  "partner_id": 10,
+  "role": "partner_manager",
+  "permissions": [
+    "sources.create",
+    "sources.view",
+    "sources.update",
+    "cameras.create",
+    "cameras.view",
+    "cameras.update",
+    "zones.create",
+    "zones.view",
+    "zones.update"
+  ],
+  "read_scope": "own_or_assigned",
+  "write_scope": "own_or_assigned",
+  "delete_scope": "own"
+}
+```
+
+---
+
+## 1.4 `POST /auth/register`
+
+Регистрирует нового обычного пользователя и создаёт новую сессию.
+
+Эндпоинт предназначен для публичной формы регистрации на сайте или в приложении.
+
+**Request body (required)**
+
+- `email` (`string`) — email пользователя.
+- `password` (`string`) — пароль пользователя.
+- `full_name` (`string`, optional) — имя пользователя.
+- `phone` (`string`, optional) — номер телефона пользователя.
+
+> Пользователь, зарегистрированный через этот эндпоинт, создаётся с глобальной ролью `user`.
+
+**Пример запроса**
+
+```http
+POST /api/v1/auth/register HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "secret_123",
+  "full_name": "Иван Петров"
+}
+```
+
+**Response (201)**
+
+- `access_token` (`string`) — токен доступа.
+- `token_type` (`string`) — всегда `Bearer`.
+- `expires_in` (`integer`) — срок жизни токена в секундах.
+- `user` (`object`) — краткая информация о пользователе:
+  - `user_id` (`integer`)
+  - `email` (`string`)
+  - `full_name` (`string | null`)
+  - `global_roles` (`string[]`)
+
+**Пример ответа (201)**
+
+```json
+{
+  "access_token": "<token>",
+  "token_type": "Bearer",
+  "expires_in": 86400,
+  "user": {
+    "user_id": 123,
+    "email": "user@example.com",
+    "full_name": "Иван Петров",
+    "global_roles": ["user"]
+  }
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                   |
+|---------|------------------------|--------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                   |
+| **409** | `Conflict`             | Пользователь с таким email уже существует. |
+| **422** | `Unprocessable Entity` | Ошибка валидации полей регистрации.        |
+| **429** | `Too Many Requests`    | Слишком много попыток регистрации.         |
+
+**Пример ответа (409)**
+
+```json
+{
+  "error_description": "User with this email already exists"
+}
+```
+
+---
+
+## 1.5 `POST /auth/login`
+
+Аутентифицирует пользователя и создаёт новую сессию.
+
+**Request body (required)**
+
+- `login` (`string`) — логин пользователя.
+- `password` (`string`) — пароль пользователя.
+
+**Пример запроса**
+
+```http
+POST /api/v1/auth/login HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+
+{
+  "login": "user@example.com",
+  "password": "secret"
+}
+```
+
+**Response (200)**
+
+- `access_token` (`string`) — токен доступа.
+- `token_type` (`string`) — всегда `Bearer`.
+- `expires_in` (`integer`) — срок жизни токена в секундах.
+- `user` (`object`) — краткая информация о пользователе:
+  - `user_id` (`integer`)
+  - `email` (`string`)
+  - `full_name` (`string | null`)
+  - `global_roles` (`string[]`)
+
+**Пример ответа (200)**
+
+```json
+{
+  "access_token": "<token>",
+  "token_type": "Bearer",
+  "expires_in": 86400,
+  "user": {
+    "user_id": 123,
+    "email": "user@example.com",
+    "full_name": "Иван Петров",
+    "global_roles": ["user"]
+  }
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                 | Описание                   |
+|---------|---------------------|----------------------------|
+| **400** | `Bad Request`       | Невалидное тело запроса.   |
+| **401** | `Unauthorized`      | Неверный логин или пароль. |
+| **429** | `Too Many Requests` | Слишком много попыток входа. |
+
+**Пример ответа (401)**
+
+```json
+{
+  "error_description": "Invalid login or password"
+}
+```
+
+---
+
+## 1.6 `POST /auth/logout`
+
+Завершает текущую сессию.
+
+**Headers**
+
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+POST /api/v1/auth/logout HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+
+---
+
+## 1.7 `GET /auth/me`
+
+Возвращает информацию о текущем пользователе и его эффективных правах доступа.
+
+**Headers**
+
+- `Authorization: Bearer <access_token>`
+
+**Response (200)**
+
+- `user_id` (`integer`) — идентификатор пользователя.
+- `email` (`string`) — email пользователя.
+- `full_name` (`string | null`) — имя пользователя.
+- `global_roles` (`string[]`) — глобальные роли пользователя.
+- `permissions` (`string[]`) — глобальные разрешения пользователя.
+- `partner_memberships` (`PartnerMembership[]`) — список членств в партнёрских организациях.
+
+**Пример запроса**
+
+```http
+GET /api/v1/auth/me HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "full_name": "Иван Петров",
+  "global_roles": ["user"],
+  "permissions": [
+    "users.me.view",
+    "users.me.update",
+    "users.password.update",
+    "map.view",
+    "zones.view",
+    "occupancy.view",
+    "forecasts.view",
+    "routing.create",
+    "feedback.create"
+  ],
+  "partner_memberships": [
+    {
+      "partner_id": 10,
+      "role": "partner_manager",
+      "permissions": [
+        "sources.create",
+        "sources.view",
+        "sources.update",
+        "cameras.create",
+        "cameras.view",
+        "cameras.update",
+        "zones.create",
+        "zones.view",
+        "zones.update"
+      ],
+      "read_scope": "own_or_assigned",
+      "write_scope": "own_or_assigned",
+      "delete_scope": "own"
+    }
+  ]
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+
+---
+
+## 1.8 Требования к защищённым эндпоинтам
+
+Каждый защищённый эндпоинт должен явно указывать:
+
+- требуется ли авторизация;
+- какие разрешения нужны для выполнения действия;
+- какая область доступа применяется к ресурсу.
+
+Пример оформления в документации раздела:
+
+- **Требуемые разрешения:** `cameras.update`
+- **Требуемая область доступа:** `write_scope` должен включать целевую камеру
+
+---
+
+## 1.9 Совместимость
+
+Auth API v1 фиксирует следующую модель для MVP:
+
+- используется только `access_token`;
+- публичная регистрация выполняется через `POST /auth/register`;
+- карта доступна всем авторизованным пользователям;
+- доступ определяется ролями, разрешениями и областью доступа к данным.
+
+---

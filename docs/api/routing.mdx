@@ -1,0 +1,804 @@
+---
+sidebar_position: 9
+title: Routing
+---
+
+# 8. Routing
+
+Раздел описывает поиск оптимальной парковки и построение маршрута до парковочной зоны.
+
+## 8.1 Назначение раздела
+
+Раздел `Routing` используется для:
+
+- поиска ближайшей подходящей парковки;
+- выбора оптимальной парковки около точки назначения;
+- построения маршрута до выбранной парковочной зоны;
+- оценки доступности парковки к моменту прибытия;
+- сохранения информации о построенном маршруте.
+
+Раздел покрывает два основных сценария:
+
+- **Найти парковку** — поиск подходящей парковки рядом с текущим положением пользователя;
+- **Построить маршрут** — поиск подходящей парковки рядом с указанной точкой назначения и построение маршрута до неё.
+
+---
+
+## 8.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `routing.create` — создание маршрута и поиск парковки;
+- `routing.view` — просмотр маршрутов пользователя;
+- `routing.delete` — удаление маршрутов пользователя;
+- `admin.analytics.view` — просмотр маршрутов в административных целях.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Маршрут, зона или связанные данные не найдены.                           |
+| **409** | `Conflict`               | Конфликт состояния маршрута.                                             |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис маршрутизации временно недоступен.                                |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: destination is required"
+}
+```
+
+---
+
+## 8.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Координаты точки
+
+Точка на карте задаётся объектом:
+
+- `latitude` (`float`, `-90..90`)
+- `longitude` (`float`, `-180..180`)
+
+Пример:
+
+```json
+{
+  "latitude": 59.955976,
+  "longitude": 30.309426
+}
+```
+
+### Навигационный провайдер
+
+Раздел не фиксирует жёстко конкретного провайдера маршрутизации в контракте API.
+
+Поле `provider` может содержать:
+
+- `yandex`
+- `internal`
+- `external`
+
+> В MVP фактически может использоваться `yandex`.
+
+---
+
+## 8.4 Модель `RouteCandidate`
+
+Кандидат на парковку, рассчитанный системой.
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `camera_id` (`integer | null`) — идентификатор связанной камеры.
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `zone_type` (`string`) — тип парковки.
+- `location_type` (`string | null`) — тип расположения зоны.
+- `is_accessible` (`boolean | null`) — относится ли зона к парковке для маломобильных пользователей.
+- `pay` (`integer`) — стоимость парковки в рублях в час.
+- `capacity` (`integer`) — вместимость зоны.
+- `current_occupied` (`integer`) — текущее число занятых мест.
+- `current_free_count` (`integer`) — текущее число свободных мест.
+- `current_confidence` (`float`) — достоверность текущей оценки.
+- `predicted_for_arrival` (`string`, ISO 8601) — момент времени, соответствующий расчётному прибытию.
+- `predicted_occupied` (`integer | null`) — прогнозируемое число занятых мест к моменту прибытия.
+- `predicted_free_count` (`integer | null`) — прогнозируемое число свободных мест к моменту прибытия.
+- `probability_free_space` (`float | null`) — вероятность наличия хотя бы одного свободного места к моменту прибытия.
+- `forecast_confidence` (`float | null`) — уверенность в прогнозе к моменту прибытия.
+- `distance_from_origin_meters` (`integer`) — расстояние от пользователя до зоны.
+- `duration_from_origin_seconds` (`integer`) — время в пути от пользователя до зоны.
+- `distance_to_destination_meters` (`integer | null`) — расстояние от зоны до точки назначения.
+- `duration_to_destination_seconds` (`integer | null`) — время в пути от зоны до точки назначения.
+- `score` (`float`) — итоговая оценка кандидата для ранжирования.
+- `rank` (`integer`) — позиция кандидата в выдаче.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "zone_type": "parallel",
+  "location_type": "street",
+  "is_accessible": false,
+  "pay": 0,
+  "capacity": 7,
+  "current_occupied": 5,
+  "current_free_count": 2,
+  "current_confidence": 0.76,
+  "predicted_for_arrival": "2026-04-06T10:30:00Z",
+  "predicted_occupied": 6,
+  "predicted_free_count": 1,
+  "probability_free_space": 0.42,
+  "forecast_confidence": 0.71,
+  "distance_from_origin_meters": 850,
+  "duration_from_origin_seconds": 240,
+  "distance_to_destination_meters": 120,
+  "duration_to_destination_seconds": 90,
+  "score": 0.84,
+  "rank": 1
+}
+```
+
+---
+
+## 8.5 Модель `Route`
+
+Полная модель построенного маршрута.
+
+- `route_id` (`integer`) — уникальный идентификатор маршрута.
+- `user_id` (`integer`) — идентификатор пользователя.
+- `mode` (`string`) — режим построения:
+  - `find_parking`
+  - `route_to_destination`
+- `provider` (`string`) — провайдер маршрутизации.
+- `origin` (`object`) — точка старта:
+  - `latitude` (`float`)
+  - `longitude` (`float`)
+- `destination` (`object | null`) — точка назначения:
+  - `latitude` (`float`)
+  - `longitude` (`float`)
+- `selected_zone_id` (`integer`) — выбранная парковочная зона.
+- `selected_candidate` (`RouteCandidate`) — выбранный кандидат.
+- `eta_seconds` (`integer`) — расчётное время прибытия.
+- `arrival_time` (`string`, ISO 8601) — расчётный момент прибытия.
+- `polyline` (`string | null`) — сериализованная геометрия маршрута.
+- `deeplink_url` (`string | null`) — deeplink в навигационный провайдер.
+- `status` (`string`) — статус маршрута:
+  - `active`
+  - `completed`
+  - `cancelled`
+  - `replaced`
+- `created_at` (`string`, ISO 8601`) — дата создания.
+- `updated_at` (`string`, ISO 8601`) — дата обновления.
+
+**Пример**
+
+```json
+{
+  "route_id": 7001,
+  "user_id": 123,
+  "mode": "route_to_destination",
+  "provider": "yandex",
+  "origin": {
+    "latitude": 59.938630,
+    "longitude": 30.314130
+  },
+  "destination": {
+    "latitude": 59.955976,
+    "longitude": 30.309426
+  },
+  "selected_zone_id": 1,
+  "selected_candidate": {
+    "zone_id": 1,
+    "camera_id": 1,
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "zone_type": "parallel",
+    "location_type": "street",
+    "is_accessible": false,
+    "pay": 0,
+    "capacity": 7,
+    "current_occupied": 5,
+    "current_free_count": 2,
+    "current_confidence": 0.76,
+    "predicted_for_arrival": "2026-04-06T10:30:00Z",
+    "predicted_occupied": 6,
+    "predicted_free_count": 1,
+    "probability_free_space": 0.42,
+    "forecast_confidence": 0.71,
+    "distance_from_origin_meters": 850,
+    "duration_from_origin_seconds": 240,
+    "distance_to_destination_meters": 120,
+    "duration_to_destination_seconds": 90,
+    "score": 0.84,
+    "rank": 1
+  },
+  "eta_seconds": 240,
+  "arrival_time": "2026-04-06T10:30:00Z",
+  "polyline": null,
+  "deeplink_url": "yandexnavi://build_route_on_map?lat_to=59.955976&lon_to=30.309426",
+  "status": "active",
+  "created_at": "2026-04-06T10:26:00Z",
+  "updated_at": "2026-04-06T10:26:00Z"
+}
+```
+
+---
+
+## 8.6 `POST /routing/search`
+
+Ищет подходящие парковочные зоны без сохранения маршрута.
+
+Эндпоинт используется для предварительного подбора кандидатов.
+
+**Требуемые разрешения**
+- `routing.create`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body (required)**
+
+- `mode` (`string`) — режим поиска:
+  - `find_parking`
+  - `route_to_destination`
+- `origin` (`object`) — текущая позиция пользователя:
+  - `latitude` (`float`)
+  - `longitude` (`float`)
+
+**Request body (optional)**
+
+- `destination` (`object`) — точка назначения. Обязательна при `mode=route_to_destination`.
+- `max_pay` (`integer`) — максимальная стоимость парковки в рублях в час.
+- `min_free_count` (`integer`) — минимальное требуемое число свободных мест.
+- `min_confidence` (`float`, `0..1`) — минимальная допустимая уверенность в данных.
+- `max_distance_to_destination_meters` (`integer`) — максимальное расстояние от парковки до точки назначения.
+- `max_duration_from_origin_seconds` (`integer`) — максимальное время в пути от пользователя до парковки.
+- `include_accessible` (`boolean`) — включать специальные парковочные места.
+- `limit` (`integer`, 1..50) — максимальное число кандидатов в ответе.
+- `use_forecast` (`boolean`) — учитывать прогноз к моменту прибытия.
+- `provider` (`string`) — провайдер маршрутизации.
+
+**Пример запроса — найти парковку**
+
+```http
+POST /api/v1/routing/search HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "mode": "find_parking",
+  "origin": {
+    "latitude": 59.938630,
+    "longitude": 30.314130
+  },
+  "max_pay": 200,
+  "min_free_count": 1,
+  "min_confidence": 0.5,
+  "limit": 5,
+  "use_forecast": true,
+  "provider": "yandex"
+}
+```
+
+**Пример запроса — построить маршрут к точке назначения**
+
+```http
+POST /api/v1/routing/search HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "mode": "route_to_destination",
+  "origin": {
+    "latitude": 59.938630,
+    "longitude": 30.314130
+  },
+  "destination": {
+    "latitude": 59.955976,
+    "longitude": 30.309426
+  },
+  "max_pay": 200,
+  "min_free_count": 1,
+  "min_confidence": 0.5,
+  "max_distance_to_destination_meters": 300,
+  "include_accessible": false,
+  "limit": 5,
+  "use_forecast": true,
+  "provider": "yandex"
+}
+```
+
+**Response (200)**
+
+- `mode` (`string`) — режим поиска.
+- `provider` (`string`) — провайдер маршрутизации.
+- `generated_at` (`string`, ISO 8601) — время генерации результата.
+- `candidates` (`RouteCandidate[]`) — кандидаты, отсортированные по убыванию качества.
+- `selected_zone_id` (`integer | null`) — идентификатор лучшего кандидата.
+- `total_candidates` (`integer`) — число найденных кандидатов до ограничения `limit`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "mode": "route_to_destination",
+  "provider": "yandex",
+  "generated_at": "2026-04-06T10:26:00Z",
+  "selected_zone_id": 1,
+  "total_candidates": 3,
+  "candidates": [
+    {
+      "zone_id": 1,
+      "camera_id": 1,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [30.309426, 59.955976],
+            [30.309358, 59.956008],
+            [30.309979, 59.956231],
+            [30.310043, 59.956201],
+            [30.309426, 59.955976]
+          ]
+        ]
+      },
+      "zone_type": "parallel",
+      "location_type": "street",
+      "is_accessible": false,
+      "pay": 0,
+      "capacity": 7,
+      "current_occupied": 5,
+      "current_free_count": 2,
+      "current_confidence": 0.76,
+      "predicted_for_arrival": "2026-04-06T10:30:00Z",
+      "predicted_occupied": 6,
+      "predicted_free_count": 1,
+      "probability_free_space": 0.42,
+      "forecast_confidence": 0.71,
+      "distance_from_origin_meters": 850,
+      "duration_from_origin_seconds": 240,
+      "distance_to_destination_meters": 120,
+      "duration_to_destination_seconds": 90,
+      "score": 0.84,
+      "rank": 1
+    }
+  ]
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                  |
+|---------|------------------------|---------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                  |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                   |
+| **403** | `Forbidden`            | Недостаточно прав для поиска маршрута.                                    |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `destination` отсутствует для `route_to_destination`. |
+| **503** | `Service Unavailable`  | Сервис маршрутизации недоступен.                                          |
+
+---
+
+## 8.7 `POST /routing/new`
+
+Строит маршрут и сохраняет его в системе.
+
+Эндпоинт использует тот же набор фильтров, что и `POST /routing/search`, но помимо поиска выбирает лучший кандидат и создаёт объект маршрута.
+
+**Требуемые разрешения**
+- `routing.create`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+
+Поддерживает те же поля, что и `POST /routing/search`.
+
+Дополнительно:
+- `selected_zone_id` (`integer`, optional`) — если передан, сервер пытается построить маршрут именно до этой зоны при условии, что она проходит проверки доступа и доступности.
+
+**Пример запроса**
+
+```http
+POST /api/v1/routing/new HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "mode": "route_to_destination",
+  "origin": {
+    "latitude": 59.938630,
+    "longitude": 30.314130
+  },
+  "destination": {
+    "latitude": 59.955976,
+    "longitude": 30.309426
+  },
+  "max_pay": 200,
+  "min_free_count": 1,
+  "min_confidence": 0.5,
+  "max_distance_to_destination_meters": 300,
+  "limit": 5,
+  "use_forecast": true,
+  "provider": "yandex"
+}
+```
+
+**Response (201)** — объект `Route`
+
+**Пример ответа (201)**
+
+```json
+{
+  "route_id": 7001,
+  "user_id": 123,
+  "mode": "route_to_destination",
+  "provider": "yandex",
+  "origin": {
+    "latitude": 59.938630,
+    "longitude": 30.314130
+  },
+  "destination": {
+    "latitude": 59.955976,
+    "longitude": 30.309426
+  },
+  "selected_zone_id": 1,
+  "selected_candidate": {
+    "zone_id": 1,
+    "camera_id": 1,
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "zone_type": "parallel",
+    "location_type": "street",
+    "is_accessible": false,
+    "pay": 0,
+    "capacity": 7,
+    "current_occupied": 5,
+    "current_free_count": 2,
+    "current_confidence": 0.76,
+    "predicted_for_arrival": "2026-04-06T10:30:00Z",
+    "predicted_occupied": 6,
+    "predicted_free_count": 1,
+    "probability_free_space": 0.42,
+    "forecast_confidence": 0.71,
+    "distance_from_origin_meters": 850,
+    "duration_from_origin_seconds": 240,
+    "distance_to_destination_meters": 120,
+    "duration_to_destination_seconds": 90,
+    "score": 0.84,
+    "rank": 1
+  },
+  "eta_seconds": 240,
+  "arrival_time": "2026-04-06T10:30:00Z",
+  "polyline": null,
+  "deeplink_url": "yandexnavi://build_route_on_map?lat_to=59.955976&lon_to=30.309426",
+  "status": "active",
+  "created_at": "2026-04-06T10:26:00Z",
+  "updated_at": "2026-04-06T10:26:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                         |
+|---------|------------------------|------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                         |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                          |
+| **403** | `Forbidden`            | Недостаточно прав для построения маршрута.                       |
+| **404** | `Not Found`            | Выбранная зона не найдена.                                       |
+| **422** | `Unprocessable Entity` | Не удалось построить маршрут или подобрать подходящую парковку.  |
+| **503** | `Service Unavailable`  | Сервис маршрутизации недоступен.                                 |
+
+---
+
+## 8.8 `GET /routing`
+
+Возвращает маршруты текущего пользователя.
+
+**Требуемые разрешения**
+- `routing.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `status` (`string`) — фильтр по статусу маршрута.
+- `mode` (`string`) — фильтр по режиму.
+- `top` (`integer`, 1..100`) — максимальное число элементов.
+- `offset` (`integer`, >=0`) — смещение для пагинации.
+
+**Пример запроса**
+
+```http
+GET /api/v1/routing?status=active&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- `items` (`Route[]`) — список маршрутов.
+- `total` (`integer`) — общее количество маршрутов по фильтру.
+- `top` (`integer`) — значение `top`.
+- `offset` (`integer`) — значение `offset`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "route_id": 7001,
+      "user_id": 123,
+      "mode": "route_to_destination",
+      "provider": "yandex",
+      "origin": {
+        "latitude": 59.938630,
+        "longitude": 30.314130
+      },
+      "destination": {
+        "latitude": 59.955976,
+        "longitude": 30.309426
+      },
+      "selected_zone_id": 1,
+      "selected_candidate": {
+        "zone_id": 1,
+        "camera_id": 1,
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [30.309426, 59.955976],
+              [30.309358, 59.956008],
+              [30.309979, 59.956231],
+              [30.310043, 59.956201],
+              [30.309426, 59.955976]
+            ]
+          ]
+        },
+        "zone_type": "parallel",
+        "location_type": "street",
+        "is_accessible": false,
+        "pay": 0,
+        "capacity": 7,
+        "current_occupied": 5,
+        "current_free_count": 2,
+        "current_confidence": 0.76,
+        "predicted_for_arrival": "2026-04-06T10:30:00Z",
+        "predicted_occupied": 6,
+        "predicted_free_count": 1,
+        "probability_free_space": 0.42,
+        "forecast_confidence": 0.71,
+        "distance_from_origin_meters": 850,
+        "duration_from_origin_seconds": 240,
+        "distance_to_destination_meters": 120,
+        "duration_to_destination_seconds": 90,
+        "score": 0.84,
+        "rank": 1
+      },
+      "eta_seconds": 240,
+      "arrival_time": "2026-04-06T10:30:00Z",
+      "polyline": null,
+      "deeplink_url": "yandexnavi://build_route_on_map?lat_to=59.955976&lon_to=30.309426",
+      "status": "active",
+      "created_at": "2026-04-06T10:26:00Z",
+      "updated_at": "2026-04-06T10:26:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                  |
+|---------|-----------------|-------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.   |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра маршрутов. |
+
+---
+
+## 8.9 `GET /routing/<route_id>`
+
+Возвращает маршрут по его идентификатору.
+
+По умолчанию пользователь может просматривать только собственные маршруты.  
+Администратор может просматривать любые маршруты.
+
+**Path-параметры**
+- `route_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `routing.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/routing/7001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `Route`
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра маршрута.|
+| **404** | `Not Found`     | Маршрут не найден.                       |
+
+---
+
+## 8.10 `PUT /routing/<route_id>`
+
+Обновляет состояние маршрута.
+
+Эндпоинт используется для изменения статуса маршрута и для явной смены выбранной зоны при перестроении.
+
+**Path-параметры**
+- `route_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `routing.create`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `status` (`string, optional`) — новый статус:
+  - `active`
+  - `completed`
+  - `cancelled`
+  - `replaced`
+- `selected_zone_id` (`integer, optional`) — новая зона для перестроения маршрута.
+- `provider` (`string, optional`) — провайдер маршрутизации.
+
+> Если передан `selected_zone_id`, сервер должен пересчитать маршрут и обновить поля `selected_candidate`, `eta_seconds`, `arrival_time`, `polyline`, `deeplink_url`.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/routing/7001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "status": "completed"
+}
+```
+
+**Response (200)** — объект `Route`
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                          |
+|---------|------------------------|-------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                          |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                           |
+| **403** | `Forbidden`            | Недостаточно прав для изменения маршрута.                         |
+| **404** | `Not Found`            | Маршрут или новая зона не найдены.                                |
+| **422** | `Unprocessable Entity` | Невозможно пересчитать маршрут для выбранной зоны.                |
+| **503** | `Service Unavailable`  | Сервис маршрутизации недоступен.                                  |
+
+---
+
+## 8.11 `DELETE /routing/<route_id>`
+
+Удаляет маршрут пользователя.
+
+В MVP удаление может быть реализовано как мягкое удаление или перевод в состояние `cancelled`.
+
+**Path-параметры**
+- `route_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `routing.delete`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/routing/7001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+| **403** | `Forbidden`     | Недостаточно прав для удаления маршрута. |
+| **404** | `Not Found`     | Маршрут не найден.                       |
+
+---
+
+## 8.12 Требования к другим разделам API
+
+Для расчёта кандидатов раздел `Routing` должен использовать:
+
+- текущее состояние из `Occupancy` или денормализованных полей `Zone`;
+- прогноз к моменту прибытия из `Forecasts`, если `use_forecast=true`;
+- геометрию зоны из `Parking Zones`.
+
+Для пользовательского фидбека по результату поиска парковки рекомендуется связывать записи фидбека с:
+
+- `route_id`
+- `selected_zone_id`
+
+---

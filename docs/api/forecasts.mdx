@@ -1,0 +1,674 @@
+---
+sidebar_position: 8
+title: Forecasts
+---
+
+# 7. Forecasts
+
+Раздел описывает прогноз занятости парковочных зон на будущие моменты времени.
+
+## 7.1 Назначение раздела
+
+Раздел `Forecasts` используется для:
+
+- хранения прогнозов занятости по парковочным зонам;
+- получения временных рядов прогноза;
+- получения прогнозного снимка состояния на карте для выбранного будущего времени;
+- записи и обновления результатов прогноза.
+
+Раздел предназначен для работы селектора времени в будущем и для сценариев выбора парковки с учётом ожидаемой занятости к моменту прибытия.
+
+> Текущее фактическое состояние и исторические наблюдения описываются в разделе `Occupancy`.  
+> Поля фактического состояния в `Zone` не заменяются прогнозами.
+
+---
+
+## 7.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `forecasts.view` — просмотр прогнозов;
+- `forecasts.write` — запись и обновление прогнозов;
+- `forecasts.delete` — удаление прогнозов.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Прогноз, зона или связанная камера не найдены.                           |
+| **409** | `Conflict`               | Конфликт данных.                                                         |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: predicted_occupied must be between 0 and capacity"
+}
+```
+
+---
+
+## 7.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Момент прогноза
+
+Для каждой прогнозной точки используются два времени:
+
+- `predicted_for` — момент времени в будущем, для которого рассчитан прогноз;
+- `generated_at` — момент времени, когда сам прогноз был сгенерирован системой.
+
+### Источник прогноза
+
+Поле `model_type` указывает источник или тип модели прогноза.
+
+Рекомендуемые значения:
+
+- `ml_model` — ML-модель общего назначения;
+- `rule_based` — прогноз на основе правил;
+- `hybrid` — комбинированный прогноз;
+- `manual` — ручная корректировка;
+- `external_partner_model` — внешний прогноз партнёра.
+
+> В MVP допустимо использовать `ml_model` как основное значение.
+
+---
+
+## 7.4 Модель `ForecastPoint`
+
+Полная модель точки прогноза занятости.
+
+- `forecast_id` (`integer`) — уникальный идентификатор прогноза.
+- `zone_id` (`integer`) — идентификатор парковочной зоны.
+- `camera_id` (`integer | null`) — идентификатор связанной камеры.
+- `partner_id` (`integer | null`) — идентификатор партнёра-владельца зоны.
+- `model_type` (`string`) — тип модели прогноза.
+- `model_version` (`string | null`) — версия модели прогноза.
+- `generated_at` (`string`, ISO 8601) — время генерации прогноза.
+- `predicted_for` (`string`, ISO 8601) — момент времени, для которого рассчитан прогноз.
+- `capacity` (`integer`, `>= 0`) — вместимость зоны на момент прогноза.
+- `predicted_occupied` (`integer`, `>= 0`, `<= capacity`) — прогнозируемое число занятых мест.
+- `predicted_free_count` (`integer`, `>= 0`) — прогнозируемое число свободных мест.
+- `probability_free_space` (`float`, `0..1`) — вероятность того, что в зоне будет хотя бы одно свободное место.
+- `confidence` (`float`, `0..1`) — уверенность модели в прогнозе.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности:
+  - `very_low`
+  - `low`
+  - `medium`
+  - `high`
+- `metadata` (`json | null`) — дополнительные данные модели.
+- `created_by_user_id` (`integer | null`) — пользователь, создавший или скорректировавший прогноз вручную, если применимо.
+
+**Пример**
+
+```json
+{
+  "forecast_id": 5001,
+  "zone_id": 1,
+  "camera_id": 1,
+  "partner_id": 10,
+  "model_type": "ml_model",
+  "model_version": "forecast-v1.0.3",
+  "generated_at": "2026-04-06T09:55:00Z",
+  "predicted_for": "2026-04-06T10:30:00Z",
+  "capacity": 7,
+  "predicted_occupied": 6,
+  "predicted_free_count": 1,
+  "probability_free_space": 0.42,
+  "confidence": 0.71,
+  "confidence_level": "medium",
+  "metadata": {
+    "features_version": "features-v2"
+  },
+  "created_by_user_id": null
+}
+```
+
+---
+
+## 7.5 Модель `ForecastSeriesPoint`
+
+Облегчённая модель для временного ряда прогноза одной зоны.
+
+- `predicted_for` (`string`, ISO 8601) — будущий момент времени.
+- `predicted_occupied` (`integer`) — прогнозируемое число занятых мест.
+- `predicted_free_count` (`integer`) — прогнозируемое число свободных мест.
+- `capacity` (`integer`) — вместимость зоны.
+- `probability_free_space` (`float`) — вероятность наличия хотя бы одного свободного места.
+- `confidence` (`float`) — уверенность модели.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности.
+- `model_type` (`string`) — тип модели прогноза.
+- `generated_at` (`string`, ISO 8601`) — время генерации прогноза.
+
+**Пример**
+
+```json
+{
+  "predicted_for": "2026-04-06T10:30:00Z",
+  "predicted_occupied": 6,
+  "predicted_free_count": 1,
+  "capacity": 7,
+  "probability_free_space": 0.42,
+  "confidence": 0.71,
+  "confidence_level": "medium",
+  "model_type": "ml_model",
+  "generated_at": "2026-04-06T09:55:00Z"
+}
+```
+
+---
+
+## 7.6 Модель `ForecastMapItem`
+
+Облегчённая модель прогноза для отображения на карте.
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `camera_id` (`integer | null`) — идентификатор камеры.
+- `capacity` (`integer`) — вместимость зоны.
+- `predicted_occupied` (`integer`) — прогнозируемое число занятых мест.
+- `predicted_free_count` (`integer`) — прогнозируемое число свободных мест.
+- `probability_free_space` (`float`) — вероятность наличия хотя бы одного свободного места.
+- `confidence` (`float`) — уверенность модели.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности.
+- `predicted_for` (`string`, ISO 8601) — момент времени, для которого рассчитан прогноз.
+- `generated_at` (`string`, ISO 8601) — время генерации прогноза.
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `pay` (`integer`) — стоимость парковки в рублях в час.
+- `zone_type` (`string`) — тип парковки.
+- `location_type` (`string | null`) — тип расположения зоны.
+- `is_accessible` (`boolean | null`) — относится ли зона к парковке для маломобильных пользователей.
+- `is_active` (`boolean`) — активна ли зона.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "capacity": 7,
+  "predicted_occupied": 6,
+  "predicted_free_count": 1,
+  "probability_free_space": 0.42,
+  "confidence": 0.71,
+  "confidence_level": "medium",
+  "predicted_for": "2026-04-06T10:30:00Z",
+  "generated_at": "2026-04-06T09:55:00Z",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "pay": 0,
+  "zone_type": "parallel",
+  "location_type": "street",
+  "is_accessible": false,
+  "is_active": true
+}
+```
+
+---
+
+## 7.7 `GET /forecasts`
+
+Возвращает прогнозы занятости, временной ряд прогноза или прогнозный снимок на карте в зависимости от параметра `view`.
+
+**Требуемые разрешения**
+- `forecasts.view`
+
+**Query-параметры (необязательные)**
+
+### Общие фильтры
+- `zone_id` (`integer`) — фильтр по зоне.
+- `camera_id` (`integer`) — фильтр по камере.
+- `partner_id` (`integer`) — фильтр по партнёру-владельцу.
+- `model_type` (`string`) — фильтр по типу модели.
+- `generated_from` (`string`, ISO 8601) — нижняя граница интервала по `generated_at`.
+- `generated_to` (`string`, ISO 8601) — верхняя граница интервала по `generated_at`.
+- `from` (`string`, ISO 8601) — нижняя граница интервала по `predicted_for`.
+- `to` (`string`, ISO 8601) — верхняя граница интервала по `predicted_for`.
+- `at` (`string`, ISO 8601) — момент времени, для которого требуется прогнозный снимок.
+- `latest_model_only` (`boolean`) — вернуть только прогнозы из последней доступной генерации по каждой зоне.
+- `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
+
+### Режим ответа
+- `view` (`string`) — режим ответа. Поддерживаемые значения:
+  - `points` — список полных прогнозных точек (по умолчанию);
+  - `series` — облегчённый временной ряд;
+  - `map` — прогнозный снимок для карты.
+
+### Дополнительные правила
+- при `view=series` рекомендуется указывать `zone_id`;
+- при `view=map` параметр `at` обязателен;
+- при `view=map` сервер возвращает по каждой зоне наиболее подходящий прогноз для указанного `at`;
+- при наличии нескольких версий прогноза для одного и того же `predicted_for` сервер по умолчанию возвращает наиболее поздний по `generated_at`, если не указано иное.
+
+**Пример запроса — полные прогнозы**
+
+```http
+GET /api/v1/forecasts?zone_id=1&from=2026-04-06T10:00:00Z&to=2026-04-06T14:00:00Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример запроса — временной ряд**
+
+```http
+GET /api/v1/forecasts?zone_id=1&from=2026-04-06T10:00:00Z&to=2026-04-06T14:00:00Z&view=series HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример запроса — снимок карты**
+
+```http
+GET /api/v1/forecasts?bbox=30.30,59.92,30.35,59.97&at=2026-04-06T10:30:00Z&view=map HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- при `view=points` — массив объектов `ForecastPoint`;
+- при `view=series` — массив объектов `ForecastSeriesPoint`;
+- при `view=map` — массив объектов `ForecastMapItem`.
+
+**Пример ответа (200) — `view=points`**
+
+```json
+[
+  {
+    "forecast_id": 5001,
+    "zone_id": 1,
+    "camera_id": 1,
+    "partner_id": 10,
+    "model_type": "ml_model",
+    "model_version": "forecast-v1.0.3",
+    "generated_at": "2026-04-06T09:55:00Z",
+    "predicted_for": "2026-04-06T10:30:00Z",
+    "capacity": 7,
+    "predicted_occupied": 6,
+    "predicted_free_count": 1,
+    "probability_free_space": 0.42,
+    "confidence": 0.71,
+    "confidence_level": "medium",
+    "metadata": {
+      "features_version": "features-v2"
+    },
+    "created_by_user_id": null
+  }
+]
+```
+
+**Пример ответа (200) — `view=series`**
+
+```json
+[
+  {
+    "predicted_for": "2026-04-06T10:30:00Z",
+    "predicted_occupied": 6,
+    "predicted_free_count": 1,
+    "capacity": 7,
+    "probability_free_space": 0.42,
+    "confidence": 0.71,
+    "confidence_level": "medium",
+    "model_type": "ml_model",
+    "generated_at": "2026-04-06T09:55:00Z"
+  },
+  {
+    "predicted_for": "2026-04-06T11:00:00Z",
+    "predicted_occupied": 7,
+    "predicted_free_count": 0,
+    "capacity": 7,
+    "probability_free_space": 0.15,
+    "confidence": 0.74,
+    "confidence_level": "medium",
+    "model_type": "ml_model",
+    "generated_at": "2026-04-06T09:55:00Z"
+  }
+]
+```
+
+**Пример ответа (200) — `view=map`**
+
+```json
+[
+  {
+    "zone_id": 1,
+    "camera_id": 1,
+    "capacity": 7,
+    "predicted_occupied": 6,
+    "predicted_free_count": 1,
+    "probability_free_space": 0.42,
+    "confidence": 0.71,
+    "confidence_level": "medium",
+    "predicted_for": "2026-04-06T10:30:00Z",
+    "generated_at": "2026-04-06T09:55:00Z",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "pay": 0,
+    "zone_type": "parallel",
+    "location_type": "street",
+    "is_accessible": false,
+    "is_active": true
+  }
+]
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра прогнозов.                               |
+| **422** | `Unprocessable Entity` | Валидация не пройдена, например `at` отсутствует при `view=map`.         |
+
+---
+
+## 7.8 `POST /forecasts/new`
+
+Создаёт новую прогнозную точку.
+
+Эндпоинт предназначен для записи результатов ML-модели, ручных корректировок и будущих внешних источников прогнозов.
+
+**Требуемые разрешения**
+- `forecasts.write`
+
+**Требуемая область доступа**
+- `write_scope` должен включать целевую зону.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body (required)**
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `model_type` (`string`) — тип модели прогноза.
+- `generated_at` (`string`, ISO 8601) — время генерации прогноза.
+- `predicted_for` (`string`, ISO 8601) — будущий момент времени прогноза.
+- `predicted_occupied` (`integer`, `>= 0`) — прогнозируемое число занятых мест.
+- `probability_free_space` (`float`, `0..1`) — вероятность наличия хотя бы одного свободного места.
+- `confidence` (`float`, `0..1`) — уверенность модели.
+
+**Request body (optional)**
+
+- `capacity` (`integer`, `>= 0`) — вместимость зоны на момент прогноза. Если не передана, сервер может использовать текущую вместимость зоны.
+- `model_version` (`string`) — версия модели.
+- `metadata` (`json | null`) — дополнительные данные модели.
+
+> Поле `predicted_free_count` вычисляется сервером как `capacity - predicted_occupied`.
+
+**Пример запроса**
+
+```http
+POST /api/v1/forecasts/new HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "zone_id": 1,
+  "model_type": "ml_model",
+  "model_version": "forecast-v1.0.3",
+  "generated_at": "2026-04-06T09:55:00Z",
+  "predicted_for": "2026-04-06T10:30:00Z",
+  "predicted_occupied": 6,
+  "probability_free_space": 0.42,
+  "confidence": 0.71,
+  "capacity": 7,
+  "metadata": {
+    "features_version": "features-v2"
+  }
+}
+```
+
+**Response (201)**
+
+- `forecast_id` (`integer`) — идентификатор созданной прогнозной точки.
+
+**Пример ответа (201)**
+
+```json
+{
+  "forecast_id": 5001
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                          |
+|---------|------------------------|-----------------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                          |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                           |
+| **403** | `Forbidden`            | Недостаточно прав для записи прогноза.                                            |
+| **404** | `Not Found`            | Зона не найдена.                                                                  |
+| **409** | `Conflict`             | Прогноз для такой комбинации `zone_id`, `generated_at`, `predicted_for` уже существует. |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`.                                                        |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `predicted_occupied > capacity`.                       |
+
+**Пример ответа (422)**
+
+```json
+{
+  "error_description": "Validation error: predicted_occupied must be between 0 and capacity"
+}
+```
+
+---
+
+## 7.9 `GET /forecasts/<forecast_id>`
+
+Возвращает прогнозную точку по её идентификатору.
+
+**Path-параметры**
+- `forecast_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `forecasts.view`
+
+**Требуемая область доступа**
+- `read_scope` должен включать зону, к которой относится прогноз.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/forecasts/5001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `ForecastPoint`
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                       |
+|---------|-----------------|------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.        |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра прогноза.      |
+| **404** | `Not Found`     | Прогноз не найден.                             |
+
+---
+
+## 7.10 `PUT /forecasts/<forecast_id>`
+
+Обновляет прогнозную точку.
+
+Допускается частичное обновление.
+
+Эндпоинт предназначен в первую очередь для ручной корректировки прогноза.
+
+**Path-параметры**
+- `forecast_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `forecasts.write`
+
+**Требуемая область доступа**
+- `write_scope` должен включать зону, к которой относится прогноз.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `model_version` (`string, optional`)
+- `generated_at` (`string, ISO 8601, optional`)
+- `predicted_for` (`string, ISO 8601, optional`)
+- `predicted_occupied` (`integer, optional`)
+- `probability_free_space` (`float, optional`)
+- `confidence` (`float, optional`)
+- `capacity` (`integer, optional`)
+- `metadata` (`json | null, optional`)
+
+> Поля `forecast_id`, `zone_id`, `camera_id`, `partner_id`, `predicted_free_count`, `model_type`, `created_by_user_id` изменяются сервером или считаются неизменяемыми в рамках текущей записи.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/forecasts/5001 HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "predicted_occupied": 5,
+  "probability_free_space": 0.58,
+  "confidence": 0.79
+}
+```
+
+**Response (200)** — объект `ForecastPoint`
+
+**Пример ответа (200)**
+
+```json
+{
+  "forecast_id": 5001,
+  "zone_id": 1,
+  "camera_id": 1,
+  "partner_id": 10,
+  "model_type": "ml_model",
+  "model_version": "forecast-v1.0.3",
+  "generated_at": "2026-04-06T09:55:00Z",
+  "predicted_for": "2026-04-06T10:30:00Z",
+  "capacity": 7,
+  "predicted_occupied": 5,
+  "predicted_free_count": 2,
+  "probability_free_space": 0.58,
+  "confidence": 0.79,
+  "confidence_level": "high",
+  "metadata": {
+    "features_version": "features-v2"
+  },
+  "created_by_user_id": null
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                          |
+|---------|------------------------|-----------------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                          |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                           |
+| **403** | `Forbidden`            | Недостаточно прав для изменения прогноза.                                         |
+| **404** | `Not Found`            | Прогноз не найден.                                                                |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `predicted_occupied > capacity`.                       |
+
+---
+
+## 7.11 `DELETE /forecasts/<forecast_id>`
+
+Удаляет прогнозную точку.
+
+**Path-параметры**
+- `forecast_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `forecasts.delete`
+
+**Требуемая область доступа**
+- `delete_scope` должен включать зону, к которой относится прогноз.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/forecasts/5001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                      |
+|---------|-----------------|-----------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`     | Недостаточно прав для удаления прогноза.      |
+| **404** | `Not Found`     | Прогноз не найден.                            |
+
+---
+
+## 7.12 Требования к другим разделам API
+
+Если эндпоинт другого раздела работает с будущим состоянием парковок, рекомендуется использовать раздел `Forecasts`.
+
+Для выбора оптимальной парковки к моменту прибытия рекомендуется использовать:
+
+- `predicted_for`
+- `predicted_free_count`
+- `probability_free_space`
+- `confidence`
+- `confidence_level`
+
+Эти поля должны использоваться вместе с ETA маршрута и параметрами фильтрации пользователя.
+
+---

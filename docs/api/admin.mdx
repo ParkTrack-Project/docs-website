@@ -1,0 +1,687 @@
+---
+sidebar_position: 12
+title: Admin
+---
+
+# 11. Admin
+
+Раздел описывает административные эндпоинты платформы.
+
+## 11.1 Назначение раздела
+
+Раздел `Admin` используется для:
+
+- административного мониторинга камер и зон;
+- просмотра последних снапшотов и результатов распознавания;
+- оперативной оценки состояния системы;
+- выполнения административных действий над сущностями платформы;
+- получения сводной информации для административной панели.
+
+Раздел не заменяет CRUD-эндпоинты из разделов:
+
+- `Users`
+- `Partners`
+- `Cameras`
+- `Parking Zones`
+- `Data Sources`
+
+Он предоставляет административные представления и управляющие операции, которые удобны именно для админ-панели.
+
+---
+
+## 11.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `admin.system.view` — просмотр административной информации о системе;
+- `admin.system.manage` — изменение состояния системных объектов и административные действия;
+- `admin.monitoring.view` — просмотр мониторинга камер, снапшотов и результатов распознавания;
+- `admin.analytics.view` — просмотр агрегированной статистики в административных целях;
+- `admin.users.view` — просмотр информации о пользователях;
+- `admin.users.manage` — управление пользователями;
+- `admin.partners.view` — просмотр информации о партнёрах;
+- `admin.partners.manage` — управление партнёрами.
+
+### Общее правило доступа
+
+Если явно не указано иное, эндпоинты раздела `Admin` предназначены только для пользователей с глобальной ролью `admin`.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Объект или административное представление не найдены.                    |
+| **409** | `Conflict`               | Конфликт состояния.                                                      |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Insufficient permissions for admin endpoint"
+}
+```
+
+---
+
+## 11.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Состояние камеры в мониторинге
+
+Поле `camera_status` в административных представлениях описывает состояние камеры.
+
+Поддерживаемые значения:
+
+- `online` — камера доступна;
+- `offline` — камера недоступна;
+- `degraded` — поток нестабилен или есть проблемы с обработкой;
+- `unknown` — состояние неизвестно.
+
+### Состояние обработки
+
+Поле `processing_status` описывает состояние обработки данных по камере.
+
+Поддерживаемые значения:
+
+- `idle` — обработка не выполняется;
+- `running` — обработка выполняется;
+- `warning` — обработка выполняется с предупреждениями;
+- `error` — обработка завершилась ошибкой;
+- `unknown` — состояние неизвестно.
+
+---
+
+## 11.4 Модель `AdminOverview`
+
+Сводная информация для административной панели.
+
+- `users_total` (`integer`) — общее число пользователей.
+- `users_active` (`integer`) — число активных пользователей.
+- `partners_total` (`integer`) — общее число партнёров.
+- `partners_active` (`integer`) — число активных партнёров.
+- `cameras_total` (`integer`) — общее число камер.
+- `cameras_active` (`integer`) — число активных камер.
+- `zones_total` (`integer`) — общее число зон.
+- `zones_active` (`integer`) — число активных зон.
+- `sources_total` (`integer`) — общее число источников данных.
+- `sources_active` (`integer`) — число активных источников данных.
+- `routes_active` (`integer`) — число активных маршрутов.
+- `updated_at` (`string`, ISO 8601) — время формирования сводки.
+
+**Пример**
+
+```json
+{
+  "users_total": 154,
+  "users_active": 143,
+  "partners_total": 8,
+  "partners_active": 7,
+  "cameras_total": 92,
+  "cameras_active": 87,
+  "zones_total": 411,
+  "zones_active": 398,
+  "sources_total": 14,
+  "sources_active": 11,
+  "routes_active": 23,
+  "updated_at": "2026-04-06T10:40:00Z"
+}
+```
+
+---
+
+## 11.5 Модель `AdminCameraMonitorItem`
+
+Объект камеры в административном мониторинге.
+
+- `camera_id` (`integer`) — идентификатор камеры.
+- `partner_id` (`integer | null`) — идентификатор партнёра-владельца.
+- `title` (`string`) — название камеры.
+- `camera_status` (`string`) — состояние камеры.
+- `processing_status` (`string`) — состояние обработки.
+- `last_snapshot_at` (`string | null`, ISO 8601) — время последнего успешно полученного снапшота.
+- `last_processed_at` (`string | null`, ISO 8601) — время последней обработки.
+- `last_detection_at` (`string | null`, ISO 8601) — время последнего результата распознавания.
+- `last_error` (`string | null`) — последнее сообщение об ошибке.
+- `source` (`string`) — URL видеопотока или строка подключения.
+- `latitude` (`float`) — широта камеры.
+- `longitude` (`float`) — долгота камеры.
+- `is_active` (`boolean`) — активна ли камера.
+
+**Пример**
+
+```json
+{
+  "camera_id": 1,
+  "partner_id": 10,
+  "title": "Кронверкский просп., парковка напротив ИТМО",
+  "camera_status": "online",
+  "processing_status": "running",
+  "last_snapshot_at": "2026-04-06T10:39:55Z",
+  "last_processed_at": "2026-04-06T10:39:58Z",
+  "last_detection_at": "2026-04-06T10:39:58Z",
+  "last_error": null,
+  "source": "rtsp://...",
+  "latitude": 59.955976,
+  "longitude": 30.309426,
+  "is_active": true
+}
+```
+
+---
+
+## 11.6 Модель `AdminSnapshotInfo`
+
+Метаданные последнего снапшота или распознавания по камере.
+
+- `camera_id` (`integer`) — идентификатор камеры.
+- `snapshot_at` (`string`, ISO 8601) — время создания снапшота.
+- `annotated` (`boolean`) — содержит ли снапшот визуализацию распознавания.
+- `content_type` (`string`) — MIME-тип изображения.
+- `width` (`integer | null`) — ширина изображения.
+- `height` (`integer | null`) — высота изображения.
+- `detections_count` (`integer | null`) — число распознанных объектов.
+- `processing_status` (`string`) — состояние обработки.
+- `model_version` (`string | null`) — версия модели распознавания.
+- `metadata` (`json | null`) — дополнительные данные обработки.
+
+**Пример**
+
+```json
+{
+  "camera_id": 1,
+  "snapshot_at": "2026-04-06T10:39:58Z",
+  "annotated": true,
+  "content_type": "image/jpeg",
+  "width": 1920,
+  "height": 1080,
+  "detections_count": 6,
+  "processing_status": "running",
+  "model_version": "cv-v1.2.0",
+  "metadata": {
+    "zones_processed": 3
+  }
+}
+```
+
+---
+
+## 11.7 `GET /admin/overview`
+
+Возвращает сводную административную информацию по системе.
+
+**Требуемые разрешения**
+- `admin.system.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/overview HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `AdminOverview`
+
+**Пример ответа (200)**
+
+```json
+{
+  "users_total": 154,
+  "users_active": 143,
+  "partners_total": 8,
+  "partners_active": 7,
+  "cameras_total": 92,
+  "cameras_active": 87,
+  "zones_total": 411,
+  "zones_active": 398,
+  "sources_total": 14,
+  "sources_active": 11,
+  "routes_active": 23,
+  "updated_at": "2026-04-06T10:40:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                       |
+|---------|-----------------|------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.        |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра overview.      |
+
+---
+
+## 11.8 `GET /admin/cameras`
+
+Возвращает список камер для административного мониторинга.
+
+**Требуемые разрешения**
+- `admin.monitoring.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `partner_id` (`integer`) — фильтр по партнёру.
+- `camera_status` (`string`) — фильтр по состоянию камеры.
+- `processing_status` (`string`) — фильтр по состоянию обработки.
+- `is_active` (`boolean`) — фильтр по активности камеры.
+- `q` (`string`) — поиск по `title`.
+- `top` (`integer`, 1..100) — максимальное число элементов.
+- `offset` (`integer`, >=0) — смещение для пагинации.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/cameras?camera_status=online&processing_status=running&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- `items` (`AdminCameraMonitorItem[]`) — список камер.
+- `total` (`integer`) — общее количество по фильтру.
+- `top` (`integer`) — значение `top`.
+- `offset` (`integer`) — значение `offset`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "camera_id": 1,
+      "partner_id": 10,
+      "title": "Кронверкский просп., парковка напротив ИТМО",
+      "camera_status": "online",
+      "processing_status": "running",
+      "last_snapshot_at": "2026-04-06T10:39:55Z",
+      "last_processed_at": "2026-04-06T10:39:58Z",
+      "last_detection_at": "2026-04-06T10:39:58Z",
+      "last_error": null,
+      "source": "rtsp://...",
+      "latitude": 59.955976,
+      "longitude": 30.309426,
+      "is_active": true
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                               |
+|---------|-----------------|--------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.                |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра мониторинга камер.     |
+
+---
+
+## 11.9 `GET /admin/cameras/<camera_id>`
+
+Возвращает детальную административную информацию по камере.
+
+**Path-параметры**
+- `camera_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.monitoring.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Response (200)** — объект `AdminCameraMonitorItem`
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/cameras/1 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                              |
+|---------|-----------------|-------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.               |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра камеры.               |
+| **404** | `Not Found`     | Камера не найдена.                                    |
+
+---
+
+## 11.10 `GET /admin/cameras/<camera_id>/snapshot`
+
+Возвращает последний снапшот камеры для админ-панели.
+
+Эндпоинт предназначен для real-time мониторинга.
+
+**Path-параметры**
+- `camera_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.monitoring.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `annotated` (`boolean`) — если `true`, вернуть снапшот с визуализацией распознавания.
+- `fallback_to_raw` (`boolean`) — если `true`, сервер может вернуть обычный снапшот, если снапшот с визуализацией недоступен.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/cameras/1/snapshot?annotated=true&fallback_to_raw=true HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+Тело ответа содержит изображение.
+
+Возможные `Content-Type`:
+- `image/jpeg`
+- `image/png`
+- `image/webp`
+
+**Ошибки**
+
+| Код     | Тип                   | Описание                                                     |
+|---------|-----------------------|--------------------------------------------------------------|
+| **401** | `Unauthorized`        | Токен отсутствует, невалиден или истёк.                      |
+| **403** | `Forbidden`           | Недостаточно прав для просмотра снапшота.                    |
+| **404** | `Not Found`           | Камера не найдена или снапшот недоступен.                    |
+| **503** | `Service Unavailable` | Сервис получения снапшота временно недоступен.               |
+
+---
+
+## 11.11 `GET /admin/cameras/<camera_id>/snapshot/info`
+
+Возвращает метаданные последнего снапшота и обработки по камере.
+
+**Path-параметры**
+- `camera_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.monitoring.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/cameras/1/snapshot/info HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `AdminSnapshotInfo`
+
+**Пример ответа (200)**
+
+```json
+{
+  "camera_id": 1,
+  "snapshot_at": "2026-04-06T10:39:58Z",
+  "annotated": true,
+  "content_type": "image/jpeg",
+  "width": 1920,
+  "height": 1080,
+  "detections_count": 6,
+  "processing_status": "running",
+  "model_version": "cv-v1.2.0",
+  "metadata": {
+    "zones_processed": 3
+  }
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                              |
+|---------|-----------------|-------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.               |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра метаданных снапшота.  |
+| **404** | `Not Found`     | Камера или метаданные снапшота не найдены.            |
+
+---
+
+## 11.12 `POST /admin/cameras/<camera_id>/processing/restart`
+
+Перезапускает обработку по камере.
+
+Эндпоинт предназначен для административного вмешательства в случае ошибок или деградации обработки.
+
+**Path-параметры**
+- `camera_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.system.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Response (202)**
+
+- `status` (`string`) — статус принятия команды.
+- `camera_id` (`integer`) — идентификатор камеры.
+
+**Пример запроса**
+
+```http
+POST /api/v1/admin/cameras/1/processing/restart HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (202)**
+
+```json
+{
+  "status": "accepted",
+  "camera_id": 1
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                              |
+|---------|-----------------|-------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.               |
+| **403** | `Forbidden`     | Недостаточно прав для перезапуска обработки.          |
+| **404** | `Not Found`     | Камера не найдена.                                    |
+| **409** | `Conflict`      | Перезапуск невозможен в текущем состоянии.            |
+
+---
+
+## 11.13 `GET /admin/zones`
+
+Возвращает список зон для административного мониторинга.
+
+Эндпоинт позволяет быстро получать проблемные или недавно обновлённые зоны без использования общего клиентского списка.
+
+**Требуемые разрешения**
+- `admin.system.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `partner_id` (`integer`) — фильтр по партнёру.
+- `camera_id` (`integer`) — фильтр по камере.
+- `is_active` (`boolean`) — фильтр по активности.
+- `updated_from` (`string`, ISO 8601) — нижняя граница по `updated_at`.
+- `updated_to` (`string`, ISO 8601) — верхняя граница по `updated_at`.
+- `top` (`integer`, 1..100)
+- `offset` (`integer`, >=0)
+
+**Response (200)**
+
+- `items` (`Zone[]`) — список зон.
+- `total` (`integer`) — общее количество по фильтру.
+- `top` (`integer`)
+- `offset` (`integer`)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/zones?camera_id=1&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                            |
+|---------|-----------------|-----------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.             |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра административных зон. |
+
+---
+
+## 11.14 `POST /admin/zones/<zone_id>/recount`
+
+Запускает пересчёт текущего состояния зоны на основе доступных источников.
+
+Эндпоинт предназначен для ручного восстановления или актуализации состояния зоны.
+
+**Path-параметры**
+- `zone_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.system.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Response (202)**
+
+- `status` (`string`) — статус принятия команды.
+- `zone_id` (`integer`) — идентификатор зоны.
+
+**Пример запроса**
+
+```http
+POST /api/v1/admin/zones/1/recount HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (202)**
+
+```json
+{
+  "status": "accepted",
+  "zone_id": 1
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                        |
+|---------|-----------------|-------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.         |
+| **403** | `Forbidden`     | Недостаточно прав для пересчёта зоны.           |
+| **404** | `Not Found`     | Зона не найдена.                                |
+
+---
+
+## 11.15 `GET /admin/users`
+
+Возвращает список пользователей для административной панели.
+
+Эндпоинт является административным представлением раздела `Users`.
+
+**Требуемые разрешения**
+- `admin.users.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры**
+- поддерживает те же фильтры, что и `GET /users`.
+
+**Response (200)**
+
+- `items` (`User[]`) — список пользователей.
+- `total` (`integer`)
+- `top` (`integer`)
+- `offset` (`integer`)
+
+> Если в административной панели достаточно данных из раздела `Users`, реализация может проксировать этот эндпоинт в `GET /users`.
+
+---
+
+## 11.16 `GET /admin/partners`
+
+Возвращает список партнёров для административной панели.
+
+Эндпоинт является административным представлением раздела `Partners`.
+
+**Требуемые разрешения**
+- `admin.partners.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры**
+- поддерживает те же фильтры, что и `GET /partners`.
+
+**Response (200)**
+
+- `items` (`Partner[]`) — список партнёров.
+- `total` (`integer`)
+- `top` (`integer`)
+- `offset` (`integer`)
+
+> Если в административной панели достаточно данных из раздела `Partners`, реализация может проксировать этот эндпоинт в `GET /partners`.
+
+---
+
+## 11.17 Требования к другим разделам API
+
+Раздел `Admin` рекомендуется использовать для:
+
+- real-time мониторинга камер;
+- просмотра снапшотов и визуализации распознавания;
+- ручного административного вмешательства в обработку данных.
+
+CRUD-операции над пользователями, партнёрами, камерами, зонами и источниками данных рекомендуется по-прежнему выполнять через профильные разделы API.
+
+---

@@ -1,56 +1,241 @@
 ---
-sidebar_position: 2
+sidebar_position: 5
 title: Cameras
 ---
 
-import HighlightParam from '@site/src/components/HighlightParam';
-import HighlightBlock from '@site/src/components/HighlightBlock';
-import JSONHighlight from '@site/src/components/JSONHighlight';
+# 4. Cameras
 
-# 2. Cameras
+Раздел описывает камеры наблюдения, используемые системой как источник точных данных о занятости парковочных зон.
 
-Для работы с камерами обязательно использование [токена авторизации](/docs/api/auth), если в документации конкретного
-эндпоинта не указано иное.
+## 4.1 Совместимость с текущей реализацией
 
-### 2.1 `GET /cameras`
+Раздел сохраняет существующие основные эндпоинты:
 
-Возвращает список всех зарегистрированных камер.
+- `GET /cameras`
+- `POST /cameras/new`
+- `GET /cameras/<camera_id>`
+- `PUT /cameras/<camera_id>`
+- `DELETE /cameras/<camera_id>`
+- `GET /cameras/next`
+- `GET /cameras/<camera_id>/snapshot`
 
-Используется для получения каталога камер и отображения их в интерфейсе `labeler`.
+Для сохранения совместимости:
+
+- существующие обязательные поля камеры сохранены;
+- существующие пути эндпоинтов сохранены;
+- новые поля добавлены как **дополнительные**;
+- клиенты, которые не используют новые поля, могут продолжать работать по прежней схеме.
+
+---
+
+## 4.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `cameras.view` — просмотр камер;
+- `cameras.create` — создание камер;
+- `cameras.update` — изменение камер;
+- `cameras.delete` — удаление камер;
+- `admin.monitoring.view` — просмотр снапшотов с визуализацией распознавания.
+
+### Правила видимости данных
+
+Сервер возвращает только те камеры, которые доступны текущему пользователю в рамках его глобальных прав, членства в партнёрской организации и области доступа к данным.
+
+Для камер партнёров рекомендуется использовать:
+
+- `partner_id` — владелец камеры;
+- `created_by_user_id` — пользователь, создавший камеру.
+
+Это позволяет применять `read_scope`, `write_scope` и `delete_scope` к камерам партнёра.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Камера не найдена.                                                       |
+| **409** | `Conflict`               | Конфликт данных, например камера с таким `title` уже существует.         |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Unsupported Media Type: expected application/json"
+}
+```
+
+---
+
+## 4.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Калибровка камеры
+
+Поле `calib` хранит вложенный JSON-объект с параметрами калибровки, коррекции и вытягивания изображения.
+
+Поле:
+
+- может быть `null`;
+- сохраняется и возвращается сервером как JSON;
+- не нормализуется сервером по отдельным подполям в рамках MVP.
+
+---
+
+## 4.4 Модель `Camera`
+
+Объект камеры в ответах API.
+
+### Базовые поля
+- `camera_id` (`integer`) — уникальный идентификатор камеры.
+- `title` (`string`) — человекочитаемое название или описание камеры.
+- `source` (`string`) — URL видеопотока или строка подключения (`rtsp://...`, `.m3u8` и т.п.).
+- `image_width` (`integer`) — ширина изображения видеопотока в пикселях.
+- `image_height` (`integer`) — высота изображения видеопотока в пикселях.
+- `calib` (`json | null`) — параметры калибровки камеры.
+- `latitude` (`float`, `-90..90`) — широта камеры.
+- `longitude` (`float`, `-180..180`) — долгота камеры.
+- `created_at` (`string`, ISO 8601) — дата создания.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления.
+
+### Дополнительные поля
+- `partner_id` (`integer | null`) — идентификатор партнёрской организации-владельца камеры.
+- `created_by_user_id` (`integer | null`) — идентификатор пользователя, создавшего камеру.
+- `is_active` (`boolean`) — активна ли камера.
+
+> Поля `partner_id`, `created_by_user_id` и `is_active` являются дополнительными и не обязательны для старых клиентов.
+
+**Пример**
+
+```json
+{
+  "camera_id": 1,
+  "title": "Кронверкский просп., парковка напротив ИТМО",
+  "source": "rtsp://...",
+  "image_width": 1920,
+  "image_height": 1080,
+  "calib": {
+    "image_width": 1920,
+    "image_height": 1080,
+    "K": [
+      [1739.237279181759, 0.0, 947.5335576199107],
+      [0.0, 2244.705015334057, 564.6946579168148],
+      [0.0, 0.0, 1.0]
+    ],
+    "D": [-0.37062084436192333, 0.05057465862770827, 0.033198096980616335, 0.012812747166936252],
+    "balance": 0.0,
+    "model": "opencv_fisheye_k1k2k3k4"
+  },
+  "latitude": 59.955976,
+  "longitude": 30.309426,
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:30:00Z"
+}
+```
+
+---
+
+## 4.5 Модель `CameraMapItem`
+
+Облегчённая модель камеры для отображения на карте.
+
+- `camera_id` (`integer`) — уникальный идентификатор камеры.
+- `title` (`string`) — название камеры.
+- `latitude` (`float`) — широта камеры.
+- `longitude` (`float`) — долгота камеры.
+- `partner_id` (`integer | null`) — идентификатор партнёра-владельца.
+- `is_active` (`boolean`) — активна ли камера.
+
+**Пример**
+
+```json
+{
+  "camera_id": 1,
+  "title": "Кронверкский просп., парковка напротив ИТМО",
+  "latitude": 59.955976,
+  "longitude": 30.309426,
+  "partner_id": 10,
+  "is_active": true
+}
+```
+
+---
+
+## 4.6 `GET /cameras`
+
+Возвращает список камер, доступных текущему пользователю.
+
+**Требуемые разрешения**
+- `cameras.view`
 
 **Query-параметры (необязательные)**
-- **q** (`string`) — фильтр по подстроке в `title`.
-- **top_left_corner_latitude\*** (`float`, `-90..90`) — широта левого верхнего угла окна просмотра камер.
-- **top_left_corner_longitude\*** (`float`, `-180..180`) — долгота левого верхнего угла окна просмотра камер.
-- **bottom_right_corner_latitude\*** (`float`, `-90..90`) — широта правого нижнего угла окна просмотра камер.
-- **bottom_right_corner_longitude\*** (`float`, `-180..180`) — долгота правого нижнего угла окна просмотра камер.
 
-\* - Поддержка этих полей необязательна для создания [MVP](https://en.wikipedia.org/wiki/Minimum_viable_product), но может потребоваться в дальнейшей разработке.
+- `q` (`string`) — фильтр по подстроке в `title`.
+- `partner_id` (`integer`) — фильтр по партнёру-владельцу камеры.
+- `is_active` (`boolean`) — фильтр по активности камеры.
+- `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
+- `view` (`string`) — режим ответа. Поддерживаемые значения:
+  - `full` — полная модель камеры (по умолчанию);
+  - `map` — облегчённая модель для отображения на карте.
 
-**Response (200)**
-Список объектов **Camera**.
+**Примеры `bbox`**
 
-**Модель Camera**
-- **camera_id** (`integer`) — уникальный идентификатор камеры.
-- **title** (`string`) — человекочитаемое описание камеры (адрес/куда смотрит).
-- <HighlightParam>**source** (`string`) — URL с видеопотоком камеры (напр. `.m3u8`) или строка для подключения (`rtsp://...`)</HighlightParam>
-- <HighlightParam>**image_width** (`integer`) — ширина изображения видеопотока в пикселях (напр., `1920`)</HighlightParam>
-- <HighlightParam>**image_height** (`integer`) — высота изображения видеопотока в пикселях (напр., `1080`)</HighlightParam>
-- <HighlightParam>**calib** (`json`) — вложенный json-объект с информацией о калибровке и вытягивании изображения с камеры. Сохраняется в одну ячейку таблицы БД. Может быть `null`.</HighlightParam>
-- **latitude** (`float`, `-90..90`) — широта камеры.
-- **longitude** (`float`, `-180..180`) — долгота камеры.
-- **created_at** (`string`, ISO 8601) — дата создания.
-- **updated_at** (`string`, ISO 8601) — дата обновления.
+```text
+30.30,59.92,30.35,59.97
+```
 
-**Пример запроса**
+> Параметр `bbox` рекомендуется использовать при загрузке камер для карты, чтобы не запрашивать все камеры сразу.
+
+**Пример запроса — полная модель**
+
 ```http
-GET /api/v0/cameras?q=просп HTTP/1.1
+GET /api/v1/cameras?q=просп HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
-**Пример ответа (массив)**
-<JSONHighlight data={
+**Пример запроса — режим карты**
+
+```http
+GET /api/v1/cameras?bbox=30.30,59.92,30.35,59.97&view=map HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- при `view=full` — массив объектов `Camera`;
+- при `view=map` — массив объектов `CameraMapItem`.
+
+**Пример ответа (200) — `view=full`**
+
+```json
 [
   {
     "camera_id": 1,
@@ -59,139 +244,139 @@ Authorization: Bearer <token>
     "image_width": 1920,
     "image_height": 1080,
     "calib": {
-          "image_width": 1920, "image_height": 1080,
-          "K": [[1739.237279181759, 0.0, 947.5335576199107],
-                [0.0, 2244.705015334057, 564.6946579168148],
-                [0.0, 0.0, 1.0]],
-          "D": [-0.37062084436192333, 0.05057465862770827, 0.033198096980616335, 0.012812747166936252],
-          "balance": 0.0, "model": "opencv_fisheye_k1k2k3k4"
+      "image_width": 1920,
+      "image_height": 1080,
+      "K": [
+        [1739.237279181759, 0.0, 947.5335576199107],
+        [0.0, 2244.705015334057, 564.6946579168148],
+        [0.0, 0.0, 1.0]
+      ],
+      "D": [-0.37062084436192333, 0.05057465862770827, 0.033198096980616335, 0.012812747166936252],
+      "balance": 0.0,
+      "model": "opencv_fisheye_k1k2k3k4"
     },
     "latitude": 59.955976,
     "longitude": 30.309426,
-    "created_at": "2025-10-08T09:12:00Z",
-    "updated_at": "2025-10-08T09:12:00Z"
+    "partner_id": 10,
+    "created_by_user_id": 123,
+    "is_active": true,
+    "created_at": "2026-04-06T10:00:00Z",
+    "updated_at": "2026-04-06T10:30:00Z"
+  }
+]
+```
+
+**Пример ответа (200) — `view=map`**
+
+```json
+[
+  {
+    "camera_id": 1,
+    "title": "Кронверкский просп., парковка напротив ИТМО",
+    "latitude": 59.955976,
+    "longitude": 30.309426,
+    "partner_id": 10,
+    "is_active": true
   },
   {
     "camera_id": 2,
     "title": "Ломоносова, 9 — двор",
-    "source": "https://... .m3u8",
-    "image_width": 1920,
-    "image_height": 1080,
-    "calib": null,
     "latitude": 59.927366,
     "longitude": 30.338487,
-    "created_at": "2025-10-08T09:15:00Z",
-    "updated_at": "2025-10-08T09:15:00Z"
+    "partner_id": 10,
+    "is_active": true
   }
-]}
-highlight={["source", "image_width", "image_height", "calib"]}/>
+]
+```
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+**Ошибки**
 
-| Код     | Тип                      | Описание                                                                                                       |
-|---------|--------------------------|----------------------------------------------------------------------------------------------------------------|
-| **422** | `Unprocessable Entity`   | Валидация не пройдена (например, координаты верхнего левого угла находятся правее или ниже координатов нижнего правого угла окна просмотра). |
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра камер.                                   |
+| **422** | `Unprocessable Entity` | Валидация не пройдена, например `bbox` имеет неверный формат или диапазон. |
 
 ---
 
-### 2.2 `POST /cameras/new`
+## 4.7 `POST /cameras/new`
 
 Создаёт новую камеру.
 
+Эндпоинт сохранён без изменения пути для совместимости с текущим кодом.
+
+**Требуемые разрешения**
+- `cameras.create`
+
+**Требуемая область доступа**
+- `write_scope` должен разрешать создание камеры в выбранной области данных.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
 **Request body (required)**
-- **title** (`string`, 1..200) — описание камеры (по какому адресу она находится и куда направлена).
-- <HighlightParam>**source** (`string`) — URL с видеопотоком камеры (напр. `.m3u8`) или строка для подключения (`rtsp://...`)</HighlightParam>
-- <HighlightParam>**image_width"** (`integer`) — ширина изображения видеопотока в пикселях (напр., `1920`)</HighlightParam>
-- <HighlightParam>**image_height** (`integer`) — высота изображения видеопотока в пикселях (напр., `1080`)</HighlightParam>
-- <HighlightParam>**calib** (`json`) — вложенный json-объект с информацией о калибровке и вытягивании изображения с камеры. Сохраняется в одну ячейку таблицы БД. Может быть `null`.</HighlightParam>
-- **latitude** (`float`, `-90..90`) — широта камеры.
-- **longitude** (`float`, `-180..180`) — долгота камеры.
 
-*Подсказки по валидации*
-- Пустая строка или длина >200 символов — ошибка.
+### Базовые поля
+- `title` (`string`, 1..200) — описание камеры.
+- `source` (`string`) — URL видеопотока или строка подключения.
+- `image_width` (`integer`) — ширина изображения.
+- `image_height` (`integer`) — высота изображения.
+- `calib` (`json | null`) — калибровка камеры.
+- `latitude` (`float`, `-90..90`) — широта камеры.
+- `longitude` (`float`, `-180..180`) — долгота камеры.
 
-**Response (201)**
-- **camera_id** (`integer`) — числовой идентификатор созданной камеры.
+### Дополнительные поля
+- `partner_id` (`integer`, optional) — партнёр-владелец камеры.
+
+> Если `partner_id` не передан, сервер может определить владельца по текущему контексту доступа пользователя.
 
 **Пример запроса**
+
 ```http
-POST /api/v0/cameras/new HTTP/1.1
+POST /api/v1/cameras/new HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
-```
-<JSONHighlight data={
+
 {
   "title": "Кронверкский просп., парковка напротив ИТМО",
-  "source": "https://... .m3u8",
+  "source": "https://example.com/stream.m3u8",
   "image_width": 1920,
   "image_height": 1080,
   "calib": null,
   "latitude": 59.955976,
-  "longitude": 30.309426
-}} highlight={["source", "image_width", "image_height", "calib"]}/>
+  "longitude": 30.309426,
+  "partner_id": 10
+}
 ```
 
+**Response (201)**
+
+- `camera_id` (`integer`) — идентификатор созданной камеры.
+
 **Пример ответа (201)**
+
 ```json
 {
   "camera_id": 1
 }
 ```
 
----
+**Ошибки**
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидное тело запроса.                                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`              | Недостаточно прав для создания камеры.                                   |
+| **404** | `Not Found`              | Указанный `partner_id` не найден.                                        |
+| **409** | `Conflict`               | Камера с таким `title` уже существует.                                   |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`.                                                 |
+| **422** | `Unprocessable Entity`   | Ошибка валидации, например `title` пустой или координаты вне диапазона.  |
 
-| Код     | Тип                      | Описание                                                                                                       |
-|---------|--------------------------|----------------------------------------------------------------------------------------------------------------|
-| **409** | `Conflict`               | Камера с таким `title` уже существует. Измени `title` или используй существующую камеру.                       |
-| **422** | `Unprocessable Entity`   | Валидация не пройдена (например, `title` пустой или слишком длинный). Исправь данные: `title` 1..200 символов. |
+**Пример ответа (409)**
 
-**Формат тела ошибки (рекомендуется)**
-```json
-{
-  "error_description": "title must be a non-empty string up to 200 chars"
-}
-```
-
----
-
-**Примеры неуспешных запросов**
-
-*Неверный `Content-Type`*
-```http
-POST /api/v0/cameras/new HTTP/1.1
-Content-Type: text/plain
-
-```
-**Ответ (415)**
-```json
-{ "error_description": "Unsupported Media Type: expected application/json" }
-```
-
-*Пустой `title`*
-```http
-POST /api/v0/cameras/new HTTP/1.1
-Content-Type: application/json
-
-{ "title": "" }
-```
-**Ответ (422)**
-```json
-{
-  "error_description": "Validation error. Empty title"
-}
-```
-
-*Дубликат*
-```http
-POST /api/v0/cameras/new HTTP/1.1
-Content-Type: application/json
-
-{ "title": "Кронверкский просп., парковка напротив ИТМО", "latitude": 59.955976, "longitude": 30.309426 }
-```
-**Ответ (409)**
 ```json
 {
   "error_description": "Camera with this title already exists"
@@ -200,95 +385,98 @@ Content-Type: application/json
 
 ---
 
-### 2.3 `GET /cameras/<camera_id>`
+## 4.8 `GET /cameras/<camera_id>`
 
-Возвращает подробную информацию о конкретной камере.
+Возвращает подробную информацию о камере.
 
 **Path-параметры**
-- **camera_id** (`integer`, required) — идентификатор камеры.
+- `camera_id` (`integer`, required) — идентификатор камеры.
+
+**Требуемые разрешения**
+- `cameras.view`
+
+**Требуемая область доступа**
+- `read_scope` должен включать целевую камеру.
 
 **Headers**
-- `Authorization: Bearer <token>`
-
-**Response (200)** — объект **Camera**
-- **camera_id** (`integer`) — уникальный идентификатор камеры.
-- **title** (`string`) — человекочитаемое описание камеры (адрес/куда смотрит).
-- <HighlightParam>**source** (`string`) — URL с видеопотоком камеры (напр. `.m3u8`) или строка для подключения (`rtsp://...`)</HighlightParam>
-- <HighlightParam>**image_width"** (`integer`) — ширина изображения видеопотока в пикселях (напр., `1920`)</HighlightParam>
-- <HighlightParam>**image_height** (`integer`) — высота изображения видеопотока в пикселях (напр., `1080`)</HighlightParam>
-- <HighlightParam>**calib** (`json`) — вложенный json-объект с информацией о калибровке и вытягивании изображения с камеры. Сохраняется в одну ячейку таблицы БД. Может быть `null`.</HighlightParam>
-- **latitude** (`float`, `-90..90`) — широта камеры.
-- **longitude** (`float`, `-180..180`) — долгота камеры.
-- **created_at** (`string`, ISO 8601) — дата создания.
-- **updated_at** (`string`, ISO 8601) — дата обновления.
+- `Authorization: Bearer <access_token>`
 
 **Пример запроса**
+
 ```http
-GET /api/v0/cameras/1 HTTP/1.1
+GET /api/v1/cameras/1 HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
+**Response (200)** — объект `Camera`
+
 **Пример ответа (200)**
-<JSONHighlight data={
+
+```json
 {
   "camera_id": 1,
   "title": "Кронверкский просп., парковка напротив ИТМО",
-  "source": "https://... .m3u8",
+  "source": "https://example.com/stream.m3u8",
   "image_width": 1920,
   "image_height": 1080,
   "calib": null,
   "latitude": 59.955976,
   "longitude": 30.309426,
-  "created_at": "2025-10-08T08:00:00Z",
-  "updated_at": "2025-10-08T08:10:00Z"
-}} highlight={["source", "image_width", "image_height", "calib"]}/>
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:10:00Z"
+}
+```
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
-| Код     | Тип                     | Описание                                  |
-|---------|-------------------------|-------------------------------------------|
-| **404** | `Not Found`             | Камера с таким `camera_id` не найдена.    |
+**Ошибки**
+
+| Код     | Тип             | Описание                                  |
+|---------|-----------------|-------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.   |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра камеры.   |
+| **404** | `Not Found`     | Камера не найдена.                        |
 
 ---
 
-### 2.4 `PUT /cameras/<camera_id>`
+## 4.9 `PUT /cameras/<camera_id>`
 
 Обновляет данные камеры.
-Допускается частичное обновление (поля, которых нет в теле, не меняются).
+
+Допускается частичное обновление.
 
 **Path-параметры**
-- **camera_id** (`integer`, required) — идентификатор камеры.
+- `camera_id` (`integer`, required) — идентификатор камеры.
+
+**Требуемые разрешения**
+- `cameras.update`
+
+**Требуемая область доступа**
+- `write_scope` должен включать целевую камеру.
 
 **Headers**
+- `Authorization: Bearer <access_token>`
 - `Content-Type: application/json`
-- `Authorization: Bearer <token>`
 
-**Request body** *(любые из полей ниже; минимум одно поле)*
-- **title** (`string`, 1..200) — описание камеры.
-- <HighlightParam>**source** (`string`) — URL с видеопотоком камеры (напр. `.m3u8`) или строка для подключения (`rtsp://...`)</HighlightParam>
-- <HighlightParam>**image_width"** (`integer`) — ширина изображения видеопотока в пикселях (напр., `1920`)</HighlightParam>
-- <HighlightParam>**image_height** (`integer`) — высота изображения видеопотока в пикселях (напр., `1080`)</HighlightParam>
-- <HighlightParam>**calib** (`json`) — вложенный json-объект с информацией о калибровке и вытягивании изображения с камеры. Сохраняется в одну ячейку таблицы БД. Может быть `null`.</HighlightParam>
-- **latitude** (`float`, `-90..90`) — широта камеры.
-- **longitude** (`float`, `-180..180`) — долгота камеры.
+**Request body**
+- `title` (`string`, 1..200, optional) — описание камеры.
+- `source` (`string, optional`) — URL видеопотока или строка подключения.
+- `image_width` (`integer, optional`) — ширина изображения.
+- `image_height` (`integer, optional`) — высота изображения.
+- `calib` (`json | null, optional`) — калибровка камеры.
+- `latitude` (`float`, optional) — широта камеры.
+- `longitude` (`float`, optional) — долгота камеры.
+- `partner_id` (`integer, optional`) — владелец камеры.
+- `is_active` (`boolean, optional`) — активность камеры.
 
-> Серверные поля `camera_id`, `created_at`, `updated_at` изменяются/устанавливаются сервером и в теле запроса игнорируются.
+> Поля `camera_id`, `created_at`, `updated_at`, `created_by_user_id` изменяются сервером и игнорируются в теле запроса.
 
-**Response (200)** — объект **Camera** (актуальное состояние после обновления)
-- **camera_id** (`integer`)
-- **title** (`string`)
-- <HighlightParam>**source** (`string`)</HighlightParam>
-- <HighlightParam>**image_width"** (`integer`)</HighlightParam>
-- <HighlightParam>**image_height** (`integer`)</HighlightParam>
-- <HighlightParam>**calib** (`json`)</HighlightParam>
-- **latitude** (`float`)
-- **longitude** (`float`)
-- **created_at** (`string`, ISO 8601)
-- **updated_at** (`string`, ISO 8601)
+**Пример запроса**
 
-**Пример запроса — полное обновление**
 ```http
-PUT /api/v0/cameras/1 HTTP/1.1
+PUT /api/v1/cameras/1 HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
@@ -300,74 +488,98 @@ Authorization: Bearer <token>
 }
 ```
 
-**Пример запроса — частичное обновление (только title)**
+**Пример запроса — частичное обновление калибровки**
+
 ```http
-PUT /api/v0/cameras/1 HTTP/1.1
+PUT /api/v1/cameras/1 HTTP/1.1
 Host: api.parktrack.live
 Content-Type: application/json
 Authorization: Bearer <token>
 
 {
-  "title": "Кронверкский просп., парковка напротив ИТМО (обновлено)"
+  "calib": {
+    "image_width": 1920,
+    "image_height": 1080,
+    "model": "opencv_fisheye_k1k2k3k4"
+  }
 }
 ```
 
+**Response (200)** — объект `Camera`
+
 **Пример ответа (200)**
+
 ```json
 {
   "camera_id": 1,
   "title": "Кронверкский просп., камера №1 (в сторону парка)",
+  "source": "https://example.com/stream.m3u8",
+  "image_width": 1920,
+  "image_height": 1080,
+  "calib": null,
   "latitude": 59.95598,
   "longitude": 30.30943,
-  "created_at": "2025-10-08T08:00:00Z",
-  "updated_at": "2025-10-08T09:02:11Z"
+  "partner_id": 10,
+  "created_by_user_id": 123,
+  "is_active": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T12:00:00Z"
 }
 ```
 
-**Ошибки** (в дополнение к [общим](/docs/api/#общие-ошибки))
-| Код     | Тип                      | Описание                                                                                                                                         |
-|---------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| **404** | `Not Found`              | Камера с таким `camera_id` не найдена.                                                                                                           |
-| **409** | `Conflict`               | Конфликт уникальности `title`.                                                                    |
-| **422** | `Unprocessable Entity`   | Валидация не пройдена: `title` пустой или >200; `latitude` вне `[-90, 90]`; `longitude` вне `[-180, 180]`.                                      |
+**Ошибки**
 
-**Формат тела ошибки**
-```json
-{
-  "error_description": "Validation error: latitude must be between -90 and 90"
-}
-```
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                 |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для изменения камеры.                                  |
+| **404** | `Not Found`            | Камера или указанный `partner_id` не найдены.                            |
+| **409** | `Conflict`             | Конфликт уникальности `title`.                                           |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `title` пустой или координаты вне диапазона.  |
 
 ---
 
-### 2.5 `DELETE /cameras/<camera_id>`
+## 4.10 `DELETE /cameras/<camera_id>`
 
-Удаляет камеру и **все связанные с ней парковочные зоны и данные** (при их наличии).
-Действие **необратимо**.
+Удаляет камеру.
+
+Эндпоинт сохранён для совместимости с текущей реализацией.
 
 **Path-параметры**
-- **camera_id** (`integer`, required) — идентификатор камеры.
+- `camera_id` (`integer`, required) — идентификатор камеры.
+
+**Требуемые разрешения**
+- `cameras.delete`
+
+**Требуемая область доступа**
+- `delete_scope` должен включать целевую камеру.
 
 **Headers**
-- `Authorization: Bearer <token>`
+- `Authorization: Bearer <access_token>`
 
-**Response (204)** — камера успешно удалена, тело отсутствует.
+**Response (204)**  
+Тело ответа отсутствует.
 
 **Пример запроса**
+
 ```http
-DELETE /api/v0/cameras/1 HTTP/1.1
+DELETE /api/v1/cameras/1 HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
 **Ошибки**
 
-| Код     | Тип         | Описание                                                                       |
-|---------|-------------|--------------------------------------------------------------------------------|
-| **404** | `Not Found` | Камера с указанным `camera_id` не найдена.                                     |
-| **409** | `Conflict`  | Удаление невозможно из-за зависимостей (есть парковочные зоны с этой камерой). |
+| Код     | Тип             | Описание                                                                       |
+|---------|-----------------|--------------------------------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.                                        |
+| **403** | `Forbidden`     | Недостаточно прав для удаления камеры.                                         |
+| **404** | `Not Found`     | Камера не найдена.                                                             |
+| **409** | `Conflict`      | Удаление невозможно из-за активных зависимостей, если сервер не выполняет каскадное удаление. |
 
 **Пример ответа (404)**
+
 ```json
 {
   "error_description": "Camera not found"
@@ -376,93 +588,149 @@ Authorization: Bearer <token>
 
 ---
 
-<HighlightBlock>
+## 4.11 `GET /cameras/next`
 
-### 2.6 `GET /cameras/next`
+Возвращает следующую камеру для очередного цикла обработки.
 
-Возвращает следующую камеру для очередной детекции автомобилей.
+Эндпоинт предназначен для внутренних сервисов обработки видеопотока и совместим с текущей реализацией.
 
-_Примеры:_
-1. Если в прошлый раз этот эндпоинт вернул камеру с id=1, то вернуться должна камера с id=2;
-2. Если всего камер 3 и последний раз возвращалась камера с id=3, то вернуться должна камера с id=1.
+**Требуемые разрешения**
+- `cameras.view`
 
 **Headers**
-- `Authorization: Bearer <token>`
+- `Authorization: Bearer <access_token>`
+
+**Response (200)**
+
+Минимальный объект камеры для обработки:
+- `camera_id` (`integer`)
+- `source` (`string`)
+- `image_width` (`integer`)
+- `image_height` (`integer`)
+- `calib` (`json | null`)
+
+Сервер может дополнительно вернуть:
+- `partner_id` (`integer | null`)
+- `is_active` (`boolean`)
 
 **Пример запроса**
+
 ```http
-GET /api/v0/cameras/next HTTP/1.1
+GET /api/v1/cameras/next HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
-**Пример ответа 1 (200)**
-```json
-{
-  "camera_id": 1,
-  "source": "https://<path>.m3u8",
-  "image_width": 1920,
-  "image_height": 1080,
-  "calib": null
-}
-```
+**Пример ответа (200)**
 
-**Пример ответа 2 (200)**
 ```json
 {
   "camera_id": 1,
-  "source": "https://<path>.m3u8",
+  "source": "https://example.com/stream.m3u8",
   "image_width": 1920,
   "image_height": 1080,
-  "calib": null
+  "calib": null,
+  "partner_id": 10,
+  "is_active": true
 }
 ```
 
 **Ошибки**
 
-| Код     | Тип                      | Описание                                                                 |
-|---------|--------------------------|--------------------------------------------------------------------------|
-| **404** | `Not Found`              | Не добавлено ни одной камеры                                             |
+| Код     | Тип             | Описание                          |
+|---------|-----------------|-----------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует или невалиден.  |
+| **403** | `Forbidden`     | Недостаточно прав.                |
+| **404** | `Not Found`     | Не добавлено ни одной камеры.     |
 
 **Пример ответа (404)**
+
 ```json
 {
   "error_description": "No cameras added"
 }
 ```
 
-### 2.7 `GET /cameras/<camera_id>/snapshot`
+---
 
-Возвращает кадр из видеопотока камеры (изображение, захваченное из `source` камеры).
+## 4.12 `GET /cameras/<camera_id>/snapshot`
+
+Возвращает кадр из видеопотока камеры.
+
+По умолчанию эндпоинт возвращает обычный снапшот.
+
+При наличии соответствующих прав эндпоинт может вернуть снапшот с визуализацией распознавания.
+
+**Path-параметры**
+- `camera_id` (`integer`, required) — идентификатор камеры.
+
+**Требуемые разрешения**
+- для обычного снапшота: `cameras.view`
+- для снапшота с визуализацией: `admin.monitoring.view`
+
+**Требуемая область доступа**
+- `read_scope` должен включать целевую камеру.
 
 **Headers**
-- `Authorization: Bearer <token>`
+- `Authorization: Bearer <access_token>`
 
-**Пример запроса**
+**Query-параметры (необязательные)**
+
+- `annotated` (`boolean`) — если `true`, сервер пытается вернуть снапшот с визуализацией распознавания.
+- `fallback_to_raw` (`boolean`) — если `true`, сервер может вернуть обычный снапшот, если снапшот с визуализацией недоступен.
+
+**Пример запроса — обычный снапшот**
+
 ```http
-GET /cameras/1/snapshot
+GET /api/v1/cameras/1/snapshot HTTP/1.1
 Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
-**Пример ответа (200)**
+**Пример запроса — снапшот с визуализацией**
+
+```http
+GET /api/v1/cameras/1/snapshot?annotated=true&fallback_to_raw=true HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
 ```
-<изображение>
-```
+
+**Response (200)**
+
+Тело ответа содержит изображение.
+
+Возможные `Content-Type`:
+- `image/jpeg`
+- `image/png`
+- `image/webp`
 
 **Ошибки**
 
-| Код     | Тип                      | Описание                                                                 |
-|---------|--------------------------|--------------------------------------------------------------------------|
-| **404** | `Not Found`              | Такой камеры нет                                                         |
+| Код     | Тип                      | Описание                                                                  |
+|---------|--------------------------|---------------------------------------------------------------------------|
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден или истёк.                                   |
+| **403** | `Forbidden`              | Недостаточно прав для просмотра снапшота или визуализации.                |
+| **404** | `Not Found`              | Камера не найдена или снапшот недоступен.                                 |
+| **503** | `Service Unavailable`    | Сервис получения снапшота временно недоступен.                            |
 
 **Пример ответа (404)**
+
 ```json
 {
-  "error_description": "Camera not found"
+  "error_description": "Camera snapshot not available"
 }
 ```
 
 ---
 
-</HighlightBlock>
+## 4.13 Требования к другим разделам API
+
+Если эндпоинт другого раздела работает с камерой как с ресурсом партнёра, рекомендуется использовать поля:
+
+- `camera_id` (`integer`)
+- `partner_id` (`integer | null`)
+- `created_by_user_id` (`integer | null`)
+
+Если эндпоинт другого раздела ссылается на снапшоты или результаты распознавания по камере, рекомендуется использовать `camera_id` как основной внешний ключ.
+
+---

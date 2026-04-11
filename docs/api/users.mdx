@@ -1,0 +1,637 @@
+---
+sidebar_position: 3
+title: Users
+---
+
+# 2. Users
+
+Раздел описывает пользователей системы, их профиль и операции управления пользователями.
+
+## 2.1 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации, если не указано иное.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Область раздела
+
+Раздел `Users` используется для:
+
+- просмотра и редактирования собственного профиля;
+- смены собственного пароля;
+- административного просмотра и управления пользователями.
+
+Публичная регистрация пользователя выполняется через раздел [Auth](./auth) и эндпоинт `POST /auth/register`.
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `users.me.view` — просмотр собственного профиля;
+- `users.me.update` — редактирование собственного профиля;
+- `users.password.update` — смена собственного пароля;
+- `admin.users.view` — просмотр пользователей системы;
+- `admin.users.manage` — изменение, блокировка и разблокировка пользователей.
+
+> Разрешения `admin.users.view` и `admin.users.manage` обычно доступны только администраторам платформы.
+
+### Общие ошибки
+
+| Код     | Тип                    | Описание                                                               |
+|---------|------------------------|------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса или отсутствуют обязательные поля.             |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден, истёк или сессия завершена.              |
+| **403** | `Forbidden`            | У пользователя недостаточно прав для выполнения действия.              |
+| **404** | `Not Found`            | Пользователь не найден.                                                |
+| **409** | `Conflict`             | Конфликт данных, например email уже используется.                      |
+| **422** | `Unprocessable Entity` | Ошибка валидации.                                                      |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "User not found"
+}
+```
+
+---
+
+## 2.2 Модель `User`
+
+Объект пользователя в ответах API.
+
+- `user_id` (`integer`) — уникальный идентификатор пользователя.
+- `email` (`string`) — email пользователя.
+- `full_name` (`string | null`) — отображаемое имя пользователя.
+- `phone` (`string | null`) — номер телефона пользователя.
+- `global_roles` (`string[]`) — глобальные роли пользователя.
+- `is_active` (`boolean`) — активна ли учётная запись.
+- `is_email_verified` (`boolean`) — подтверждён ли email.
+- `created_at` (`string`, ISO 8601) — дата создания пользователя.
+- `updated_at` (`string`, ISO 8601) — дата последнего обновления пользователя.
+
+Пример:
+
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "full_name": "Иван Петров",
+  "phone": "+79991234567",
+  "global_roles": ["user"],
+  "is_active": true,
+  "is_email_verified": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T10:30:00Z"
+}
+```
+
+---
+
+## 2.3 Модель `UserProfile`
+
+Расширенная модель профиля пользователя.
+
+- `user` (`User`) — базовые данные пользователя.
+- `partner_memberships` (`array`) — список членств пользователя в партнёрских организациях:
+  - `partner_id` (`integer`)
+  - `role` (`string`)
+  - `is_active` (`boolean`)
+  - `read_scope` (`string`)
+  - `write_scope` (`string`)
+  - `delete_scope` (`string`)
+
+Пример:
+
+```json
+{
+  "user": {
+    "user_id": 123,
+    "email": "user@example.com",
+    "full_name": "Иван Петров",
+    "phone": "+79991234567",
+    "global_roles": ["user"],
+    "is_active": true,
+    "is_email_verified": true,
+    "created_at": "2026-04-06T10:00:00Z",
+    "updated_at": "2026-04-06T10:30:00Z"
+  },
+  "partner_memberships": [
+    {
+      "partner_id": 10,
+      "role": "partner_manager",
+      "is_active": true,
+      "read_scope": "own_or_assigned",
+      "write_scope": "own_or_assigned",
+      "delete_scope": "own"
+    }
+  ]
+}
+```
+
+---
+
+## 2.4 `GET /users/me`
+
+Возвращает профиль текущего пользователя.
+
+**Требуемые разрешения**
+- `users.me.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/users/me HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `UserProfile`
+
+**Пример ответа (200)**
+
+```json
+{
+  "user": {
+    "user_id": 123,
+    "email": "user@example.com",
+    "full_name": "Иван Петров",
+    "phone": "+79991234567",
+    "global_roles": ["user"],
+    "is_active": true,
+    "is_email_verified": true,
+    "created_at": "2026-04-06T10:00:00Z",
+    "updated_at": "2026-04-06T10:30:00Z"
+  },
+  "partner_memberships": [
+    {
+      "partner_id": 10,
+      "role": "partner_manager",
+      "is_active": true,
+      "read_scope": "own_or_assigned",
+      "write_scope": "own_or_assigned",
+      "delete_scope": "own"
+    }
+  ]
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                 |
+|---------|-----------------|------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.  |
+
+---
+
+## 2.5 `PUT /users/me`
+
+Обновляет профиль текущего пользователя.
+
+Допускается частичное обновление.
+
+**Требуемые разрешения**
+- `users.me.update`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `full_name` (`string`, 1..200, optional) — имя пользователя.
+- `phone` (`string`, optional) — номер телефона пользователя.
+
+> Поля `email`, `global_roles`, `is_active`, `is_email_verified`, `created_at`, `updated_at` изменяются только сервером или административными эндпоинтами.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/users/me HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "full_name": "Иван Петров",
+  "phone": "+79991234567"
+}
+```
+
+**Response (200)** — объект `User`
+
+**Пример ответа (200)**
+
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "full_name": "Иван Петров",
+  "phone": "+79991234567",
+  "global_roles": ["user"],
+  "is_active": true,
+  "is_email_verified": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T11:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                           |
+|---------|------------------------|----------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                           |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.            |
+| **422** | `Unprocessable Entity` | Ошибка валидации полей профиля.                    |
+
+**Пример ответа (422)**
+
+```json
+{
+  "error_description": "Validation error: full_name must be between 1 and 200 characters"
+}
+```
+
+---
+
+## 2.6 `PUT /users/me/password`
+
+Меняет пароль текущего пользователя.
+
+**Требуемые разрешения**
+- `users.password.update`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `current_password` (`string`, required) — текущий пароль.
+- `new_password` (`string`, required) — новый пароль.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/users/me/password HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "current_password": "old_secret",
+  "new_password": "new_secret_123"
+}
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                           |
+|---------|------------------------|----------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                           |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.            |
+| **403** | `Forbidden`            | Текущий пароль указан неверно.                     |
+| **422** | `Unprocessable Entity` | Новый пароль не соответствует требованиям.         |
+
+**Пример ответа (403)**
+
+```json
+{
+  "error_description": "Current password is invalid"
+}
+```
+
+---
+
+## 2.7 `GET /users`
+
+Возвращает список пользователей системы.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Требуемые разрешения**
+- `admin.users.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `q` (`string`) — поиск по `email` или `full_name`.
+- `role` (`string`) — фильтр по глобальной роли.
+- `is_active` (`boolean`) — фильтр по статусу учётной записи.
+- `top` (`integer`, 1..100) — максимальное количество элементов в ответе.
+- `offset` (`integer`, >=0) — смещение для пагинации.
+
+**Пример запроса**
+
+```http
+GET /api/v1/users?q=ivan&is_active=true&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- `items` (`User[]`) — список пользователей.
+- `total` (`integer`) — общее количество пользователей по фильтру.
+- `top` (`integer`) — значение `top`, использованное в запросе.
+- `offset` (`integer`) — значение `offset`, использованное в запросе.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "user_id": 123,
+      "email": "user@example.com",
+      "full_name": "Иван Петров",
+      "phone": "+79991234567",
+      "global_roles": ["user"],
+      "is_active": true,
+      "is_email_verified": true,
+      "created_at": "2026-04-06T10:00:00Z",
+      "updated_at": "2026-04-06T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                  |
+|---------|-----------------|-------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.   |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра списка.   |
+
+---
+
+## 2.8 `GET /users/<user_id>`
+
+Возвращает данные пользователя по его идентификатору.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Path-параметры**
+- `user_id` (`integer`, required) — идентификатор пользователя.
+
+**Требуемые разрешения**
+- `admin.users.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/users/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `UserProfile`
+
+**Пример ответа (200)**
+
+```json
+{
+  "user": {
+    "user_id": 123,
+    "email": "user@example.com",
+    "full_name": "Иван Петров",
+    "phone": "+79991234567",
+    "global_roles": ["user"],
+    "is_active": true,
+    "is_email_verified": true,
+    "created_at": "2026-04-06T10:00:00Z",
+    "updated_at": "2026-04-06T10:30:00Z"
+  },
+  "partner_memberships": [
+    {
+      "partner_id": 10,
+      "role": "partner_manager",
+      "is_active": true,
+      "read_scope": "own_or_assigned",
+      "write_scope": "own_or_assigned",
+      "delete_scope": "own"
+    }
+  ]
+}
+```
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                      |
+|---------|-----------------|-----------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра пользователя. |
+| **404** | `Not Found`     | Пользователь не найден.                       |
+
+---
+
+## 2.9 `POST /users`
+
+Создаёт нового пользователя.
+
+Эндпоинт предназначен для административного интерфейса или служебного создания пользователей.
+
+**Требуемые разрешения**
+- `admin.users.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `email` (`string`, required) — email пользователя.
+- `password` (`string`, required) — пароль пользователя.
+- `full_name` (`string`, optional) — имя пользователя.
+- `phone` (`string`, optional) — номер телефона.
+- `global_roles` (`string[]`, optional) — глобальные роли пользователя. По умолчанию: `["user"]`.
+- `is_active` (`boolean`, optional) — активность учётной записи. По умолчанию: `true`.
+
+> Публичная регистрация обычного пользователя должна выполняться через `POST /auth/register`, а не через этот эндпоинт.
+
+**Пример запроса**
+
+```http
+POST /api/v1/users HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "email": "new.user@example.com",
+  "password": "secret_123",
+  "full_name": "Новый пользователь",
+  "global_roles": ["user"]
+}
+```
+
+**Response (201)**
+
+- `user_id` (`integer`) — идентификатор созданного пользователя.
+
+**Пример ответа (201)**
+
+```json
+{
+  "user_id": 124
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                      |
+|---------|------------------------|-----------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                      |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.       |
+| **403** | `Forbidden`            | Недостаточно прав для создания пользователя.  |
+| **409** | `Conflict`             | Пользователь с таким email уже существует.    |
+| **422** | `Unprocessable Entity` | Ошибка валидации полей пользователя.          |
+
+**Пример ответа (409)**
+
+```json
+{
+  "error_description": "User with this email already exists"
+}
+```
+
+---
+
+## 2.10 `PUT /users/<user_id>`
+
+Обновляет данные пользователя по его идентификатору.
+
+Допускается частичное обновление.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Path-параметры**
+- `user_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.users.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `email` (`string`, optional)
+- `full_name` (`string`, optional)
+- `phone` (`string`, optional)
+- `global_roles` (`string[]`, optional)
+- `is_active` (`boolean`, optional)
+- `is_email_verified` (`boolean`, optional)
+
+> Поле `password` не обновляется через этот эндпоинт.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/users/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "full_name": "Иван Петров",
+  "is_active": false
+}
+```
+
+**Response (200)** — объект `User`
+
+**Пример ответа (200)**
+
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "full_name": "Иван Петров",
+  "phone": "+79991234567",
+  "global_roles": ["user"],
+  "is_active": false,
+  "is_email_verified": true,
+  "created_at": "2026-04-06T10:00:00Z",
+  "updated_at": "2026-04-06T12:00:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                             |
+|---------|------------------------|------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                             |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.              |
+| **403** | `Forbidden`            | Недостаточно прав для изменения пользователя.        |
+| **404** | `Not Found`            | Пользователь не найден.                              |
+| **409** | `Conflict`             | Новый email уже используется другим пользователем.   |
+| **422** | `Unprocessable Entity` | Ошибка валидации данных.                             |
+
+---
+
+## 2.11 `DELETE /users/<user_id>`
+
+Деактивирует пользователя.
+
+Физическое удаление пользователя в MVP не выполняется.  
+Эндпоинт переводит пользователя в состояние `is_active = false`.
+
+Эндпоинт предназначен для административного интерфейса.
+
+**Path-параметры**
+- `user_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `admin.users.manage`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/users/123 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                             |
+|---------|-----------------|------------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.              |
+| **403** | `Forbidden`     | Недостаточно прав для деактивации пользователя.      |
+| **404** | `Not Found`     | Пользователь не найден.                              |
+
+---
+
+## 2.12 Требования к другим разделам API
+
+Если эндпоинт другого раздела возвращает пользователя, рекомендуется использовать модель `User` или краткую ссылочную форму:
+
+- `user_id` (`integer`)
+- `email` (`string`)
+- `full_name` (`string | null`)
+
+Если эндпоинт другого раздела работает с членством пользователя в партнёрской организации, рекомендуется ссылаться на раздел `Partners`.
+
+---

@@ -1,0 +1,660 @@
+---
+sidebar_position: 7
+title: Occupancy
+---
+
+# 6. Occupancy
+
+Раздел описывает текущую и историческую занятость парковочных зон.
+
+## 6.1 Совместимость с текущей реализацией
+
+Текущие поля занятости в разделе `Parking Zones` сохраняются:
+
+- `occupied`
+- `free_count`
+- `confidence`
+- `confidence_level`
+- `occupancy_updated_at`
+
+Они остаются частью модели `Zone` и отражают **последнее актуальное состояние зоны**.
+
+Раздел `Occupancy` вводится как отдельный слой для:
+
+- хранения истории наблюдений;
+- получения временных рядов занятости;
+- получения снимка занятости по состоянию на определённый момент времени;
+- записи новых наблюдений занятости.
+
+> Таким образом, старый код, который читает текущее состояние из `GET /zones` или `GET /zones/<zone_id>`, может продолжать работать без изменений.
+
+---
+
+## 6.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `occupancy.view` — просмотр текущей и исторической занятости;
+- `occupancy.write` — запись наблюдений занятости;
+- `occupancy.delete` — удаление наблюдений занятости.
+
+### Общие ошибки
+
+| Код     | Тип                      | Описание                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`            | Невалидный JSON или неверные типы полей.                                 |
+| **401** | `Unauthorized`           | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`              | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`              | Наблюдение, зона или связанная камера не найдены.                        |
+| **409** | `Conflict`               | Конфликт данных.                                                         |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
+| **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: occupied must be between 0 and capacity"
+}
+```
+
+---
+
+## 6.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Источник наблюдения
+
+Поле `source_type` указывает источник данных, из которого получено наблюдение.
+
+Рекомендуемые значения:
+
+- `camera_cv` — оценка по компьютерному зрению с камеры;
+- `manual` — ручное обновление;
+- `partner_api` — данные из API партнёра;
+- `parking_sensor` — данные от датчиков парковки;
+- `payment_data` — данные об оплате парковки;
+- `navigator_data` — агрегированные навигационные данные;
+- `carsharing_data` — данные каршеринга;
+- `model_adjustment` — скорректированная оценка модели.
+
+> В MVP фактически используется `camera_cv`. Остальные значения зарезервированы для будущих источников данных.
+
+### Актуальное состояние зоны
+
+При создании нового наблюдения сервер может обновлять денормализованные поля зоны:
+
+- `occupied`
+- `free_count`
+- `confidence`
+- `confidence_level`
+- `occupancy_updated_at`
+
+Если новое наблюдение является наиболее актуальным для данной зоны.
+
+---
+
+## 6.4 Модель `OccupancyObservation`
+
+Полная модель наблюдения занятости.
+
+- `observation_id` (`integer`) — уникальный идентификатор наблюдения.
+- `zone_id` (`integer`) — идентификатор парковочной зоны.
+- `camera_id` (`integer | null`) — идентификатор связанной камеры.
+- `partner_id` (`integer | null`) — идентификатор партнёра-владельца зоны.
+- `source_type` (`string`) — тип источника наблюдения.
+- `source_ref` (`string | null`) — внешний идентификатор или ссылка на событие в источнике данных.
+- `capacity` (`integer`, `>= 0`) — вместимость зоны на момент наблюдения.
+- `occupied` (`integer`, `>= 0`, `<= capacity`) — число занятых мест.
+- `free_count` (`integer`, `>= 0`) — число свободных мест.
+- `confidence` (`float`, `0..1`) — достоверность наблюдения.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности:
+  - `very_low`
+  - `low`
+  - `medium`
+  - `high`
+- `observed_at` (`string`, ISO 8601) — время, к которому относится наблюдение.
+- `ingested_at` (`string`, ISO 8601) — время записи наблюдения в систему.
+- `metadata` (`json | null`) — дополнительные данные источника.
+- `created_by_user_id` (`integer | null`) — пользователь, создавший наблюдение вручную, если применимо.
+
+**Пример**
+
+```json
+{
+  "observation_id": 1001,
+  "zone_id": 1,
+  "camera_id": 1,
+  "partner_id": 10,
+  "source_type": "camera_cv",
+  "source_ref": "frame:2026-04-06T10:10:00Z",
+  "capacity": 7,
+  "occupied": 5,
+  "free_count": 2,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "observed_at": "2026-04-06T10:10:00Z",
+  "ingested_at": "2026-04-06T10:10:03Z",
+  "metadata": {
+    "model_version": "cv-v1.2.0"
+  },
+  "created_by_user_id": null
+}
+```
+
+---
+
+## 6.5 Модель `OccupancySeriesPoint`
+
+Облегчённая модель для временного ряда одной зоны.
+
+- `observed_at` (`string`, ISO 8601) — время наблюдения.
+- `occupied` (`integer`) — число занятых мест.
+- `free_count` (`integer`) — число свободных мест.
+- `capacity` (`integer`) — вместимость зоны.
+- `confidence` (`float`) — достоверность наблюдения.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности.
+- `source_type` (`string`) — тип источника наблюдения.
+
+**Пример**
+
+```json
+{
+  "observed_at": "2026-04-06T10:10:00Z",
+  "occupied": 5,
+  "free_count": 2,
+  "capacity": 7,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "source_type": "camera_cv"
+}
+```
+
+---
+
+## 6.6 Модель `OccupancyMapItem`
+
+Облегчённая модель для временного снимка занятости на карте.
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `camera_id` (`integer | null`) — идентификатор камеры.
+- `capacity` (`integer`) — вместимость зоны.
+- `occupied` (`integer`) — число занятых мест.
+- `free_count` (`integer`) — число свободных мест.
+- `confidence` (`float`) — достоверность оценки.
+- `confidence_level` (`string | null`) — категориальная оценка достоверности.
+- `observed_at` (`string`, ISO 8601) — время наблюдения, использованного для снимка.
+- `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
+- `pay` (`integer`) — стоимость парковки в рублях в час.
+- `zone_type` (`string`) — тип парковки.
+- `location_type` (`string | null`) — тип расположения зоны.
+- `is_accessible` (`boolean | null`) — относится ли зона к парковке для маломобильных пользователей.
+- `is_active` (`boolean`) — активна ли зона.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "capacity": 7,
+  "occupied": 5,
+  "free_count": 2,
+  "confidence": 0.76,
+  "confidence_level": "medium",
+  "observed_at": "2026-04-06T10:10:00Z",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [30.309426, 59.955976],
+        [30.309358, 59.956008],
+        [30.309979, 59.956231],
+        [30.310043, 59.956201],
+        [30.309426, 59.955976]
+      ]
+    ]
+  },
+  "pay": 0,
+  "zone_type": "parallel",
+  "location_type": "street",
+  "is_accessible": false,
+  "is_active": true
+}
+```
+
+---
+
+## 6.7 `GET /occupancy`
+
+Возвращает наблюдения занятости, временной ряд или снимок занятости на карте в зависимости от параметра `view`.
+
+**Требуемые разрешения**
+- `occupancy.view`
+
+**Query-параметры (необязательные)**
+
+### Общие фильтры
+- `zone_id` (`integer`) — фильтр по зоне.
+- `camera_id` (`integer`) — фильтр по камере.
+- `partner_id` (`integer`) — фильтр по партнёру-владельцу.
+- `source_type` (`string`) — фильтр по типу источника.
+- `from` (`string`, ISO 8601) — нижняя граница интервала по `observed_at`.
+- `to` (`string`, ISO 8601) — верхняя граница интервала по `observed_at`.
+- `at` (`string`, ISO 8601) — момент времени для снимка состояния.
+- `latest_only` (`boolean`) — вернуть только последнее наблюдение по каждой зоне.
+- `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
+
+### Режим ответа
+- `view` (`string`) — режим ответа. Поддерживаемые значения:
+  - `observations` — список полных наблюдений (по умолчанию);
+  - `series` — облегчённый временной ряд;
+  - `map` — снимок занятости для карты.
+
+### Дополнительные правила
+- при `view=series` рекомендуется указывать `zone_id`;
+- при `view=map`:
+  - если `at` не указан, возвращается последнее известное состояние по каждой зоне;
+  - если `at` указан, возвращается последнее наблюдение по каждой зоне с `observed_at <= at`.
+
+**Пример запроса — полные наблюдения**
+
+```http
+GET /api/v1/occupancy?zone_id=1&from=2026-04-06T00:00:00Z&to=2026-04-06T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример запроса — временной ряд**
+
+```http
+GET /api/v1/occupancy?zone_id=1&from=2026-04-06T08:00:00Z&to=2026-04-06T12:00:00Z&view=series HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример запроса — снимок карты**
+
+```http
+GET /api/v1/occupancy?bbox=30.30,59.92,30.35,59.97&at=2026-04-06T10:10:00Z&view=map HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+- при `view=observations` — массив объектов `OccupancyObservation`;
+- при `view=series` — массив объектов `OccupancySeriesPoint`;
+- при `view=map` — массив объектов `OccupancyMapItem`.
+
+**Пример ответа (200) — `view=observations`**
+
+```json
+[
+  {
+    "observation_id": 1001,
+    "zone_id": 1,
+    "camera_id": 1,
+    "partner_id": 10,
+    "source_type": "camera_cv",
+    "source_ref": "frame:2026-04-06T10:10:00Z",
+    "capacity": 7,
+    "occupied": 5,
+    "free_count": 2,
+    "confidence": 0.76,
+    "confidence_level": "medium",
+    "observed_at": "2026-04-06T10:10:00Z",
+    "ingested_at": "2026-04-06T10:10:03Z",
+    "metadata": {
+      "model_version": "cv-v1.2.0"
+    },
+    "created_by_user_id": null
+  }
+]
+```
+
+**Пример ответа (200) — `view=series`**
+
+```json
+[
+  {
+    "observed_at": "2026-04-06T10:00:00Z",
+    "occupied": 4,
+    "free_count": 3,
+    "capacity": 7,
+    "confidence": 0.74,
+    "confidence_level": "medium",
+    "source_type": "camera_cv"
+  },
+  {
+    "observed_at": "2026-04-06T10:10:00Z",
+    "occupied": 5,
+    "free_count": 2,
+    "capacity": 7,
+    "confidence": 0.76,
+    "confidence_level": "medium",
+    "source_type": "camera_cv"
+  }
+]
+```
+
+**Пример ответа (200) — `view=map`**
+
+```json
+[
+  {
+    "zone_id": 1,
+    "camera_id": 1,
+    "capacity": 7,
+    "occupied": 5,
+    "free_count": 2,
+    "confidence": 0.76,
+    "confidence_level": "medium",
+    "observed_at": "2026-04-06T10:10:00Z",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [30.309426, 59.955976],
+          [30.309358, 59.956008],
+          [30.309979, 59.956231],
+          [30.310043, 59.956201],
+          [30.309426, 59.955976]
+        ]
+      ]
+    },
+    "pay": 0,
+    "zone_type": "parallel",
+    "location_type": "street",
+    "is_accessible": false,
+    "is_active": true
+  }
+]
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра занятости.                               |
+| **422** | `Unprocessable Entity` | Валидация не пройдена, например `bbox` имеет неверный формат.            |
+
+---
+
+## 6.8 `POST /occupancy/new`
+
+Создаёт новое наблюдение занятости.
+
+Эндпоинт предназначен для записи результатов CV, ручных корректировок и будущих внешних источников данных.
+
+**Требуемые разрешения**
+- `occupancy.write`
+
+**Требуемая область доступа**
+- `write_scope` должен включать целевую зону.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body (required)**
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `source_type` (`string`) — тип источника наблюдения.
+- `observed_at` (`string`, ISO 8601) — время наблюдения.
+- `occupied` (`integer`, `>= 0`) — число занятых мест.
+- `confidence` (`float`, `0..1`) — достоверность наблюдения.
+
+**Request body (optional)**
+
+- `source_ref` (`string`) — внешний идентификатор наблюдения.
+- `capacity` (`integer`, `>= 0`) — вместимость зоны на момент наблюдения. Если не передана, сервер может использовать текущую вместимость зоны.
+- `metadata` (`json | null`) — дополнительные данные источника.
+
+> Поле `free_count` вычисляется сервером как `capacity - occupied`.
+
+**Пример запроса**
+
+```http
+POST /api/v1/occupancy/new HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "zone_id": 1,
+  "source_type": "camera_cv",
+  "source_ref": "frame:2026-04-06T10:10:00Z",
+  "observed_at": "2026-04-06T10:10:00Z",
+  "occupied": 5,
+  "confidence": 0.76,
+  "capacity": 7,
+  "metadata": {
+    "model_version": "cv-v1.2.0"
+  }
+}
+```
+
+**Response (201)**
+
+- `observation_id` (`integer`) — идентификатор созданного наблюдения.
+
+**Пример ответа (201)**
+
+```json
+{
+  "observation_id": 1001
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                 |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для записи наблюдения.                                 |
+| **404** | `Not Found`            | Зона не найдена.                                                         |
+| **409** | `Conflict`             | Наблюдение с таким `source_ref` уже существует в рамках источника.       |
+| **415** | `Unsupported Media Type` | Неверный `Content-Type`.                                               |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `occupied > capacity`.                        |
+
+**Пример ответа (422)**
+
+```json
+{
+  "error_description": "Validation error: occupied must be between 0 and capacity"
+}
+```
+
+---
+
+## 6.9 `GET /occupancy/<observation_id>`
+
+Возвращает наблюдение занятости по его идентификатору.
+
+**Path-параметры**
+- `observation_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `occupancy.view`
+
+**Требуемая область доступа**
+- `read_scope` должен включать зону, к которой относится наблюдение.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+GET /api/v1/occupancy/1001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `OccupancyObservation`
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                          |
+|---------|-----------------|---------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.           |
+| **403** | `Forbidden`     | Недостаточно прав для просмотра наблюдения.       |
+| **404** | `Not Found`     | Наблюдение не найдено.                            |
+
+---
+
+## 6.10 `PUT /occupancy/<observation_id>`
+
+Обновляет наблюдение занятости.
+
+Допускается частичное обновление.
+
+Эндпоинт предназначен в первую очередь для ручной корректировки наблюдений.
+
+**Path-параметры**
+- `observation_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `occupancy.write`
+
+**Требуемая область доступа**
+- `write_scope` должен включать зону, к которой относится наблюдение.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+- `Content-Type: application/json`
+
+**Request body**
+- `observed_at` (`string`, ISO 8601, optional)
+- `occupied` (`integer, optional`)
+- `confidence` (`float, optional`)
+- `capacity` (`integer, optional`)
+- `source_ref` (`string, optional`)
+- `metadata` (`json | null, optional`)
+
+> Поля `observation_id`, `zone_id`, `camera_id`, `partner_id`, `free_count`, `ingested_at`, `created_by_user_id` изменяются сервером и игнорируются в теле запроса.
+
+**Пример запроса**
+
+```http
+PUT /api/v1/occupancy/1001 HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "occupied": 4,
+  "confidence": 0.81
+}
+```
+
+**Response (200)** — объект `OccupancyObservation`
+
+**Пример ответа (200)**
+
+```json
+{
+  "observation_id": 1001,
+  "zone_id": 1,
+  "camera_id": 1,
+  "partner_id": 10,
+  "source_type": "camera_cv",
+  "source_ref": "frame:2026-04-06T10:10:00Z",
+  "capacity": 7,
+  "occupied": 4,
+  "free_count": 3,
+  "confidence": 0.81,
+  "confidence_level": "high",
+  "observed_at": "2026-04-06T10:10:00Z",
+  "ingested_at": "2026-04-06T10:10:03Z",
+  "metadata": {
+    "model_version": "cv-v1.2.0"
+  },
+  "created_by_user_id": null
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидное тело запроса.                                                 |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
+| **403** | `Forbidden`            | Недостаточно прав для изменения наблюдения.                              |
+| **404** | `Not Found`            | Наблюдение не найдено.                                                   |
+| **422** | `Unprocessable Entity` | Ошибка валидации, например `occupied > capacity`.                        |
+
+---
+
+## 6.11 `DELETE /occupancy/<observation_id>`
+
+Удаляет наблюдение занятости.
+
+**Path-параметры**
+- `observation_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `occupancy.delete`
+
+**Требуемая область доступа**
+- `delete_scope` должен включать зону, к которой относится наблюдение.
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Пример запроса**
+
+```http
+DELETE /api/v1/occupancy/1001 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (204)**  
+Тело ответа отсутствует.
+
+**Ошибки**
+
+| Код     | Тип             | Описание                                         |
+|---------|-----------------|--------------------------------------------------|
+| **401** | `Unauthorized`  | Токен отсутствует, невалиден или истёк.          |
+| **403** | `Forbidden`     | Недостаточно прав для удаления наблюдения.       |
+| **404** | `Not Found`     | Наблюдение не найдено.                           |
+
+---
+
+## 6.12 Требования к другим разделам API
+
+Если эндпоинт другого раздела возвращает текущее состояние зоны, рекомендуется использовать денормализованные поля зоны:
+
+- `occupied`
+- `free_count`
+- `confidence`
+- `confidence_level`
+- `occupancy_updated_at`
+
+Если эндпоинт другого раздела работает с историей занятости или со снимком состояния в определённый момент времени, рекомендуется использовать раздел `Occupancy`.
+
+---

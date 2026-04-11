@@ -1,0 +1,670 @@
+---
+sidebar_position: 13
+title: Analytics
+---
+
+# 12. Analytics
+
+Раздел описывает агрегированную аналитику системы для административных и партнёрских интерфейсов.
+
+## 12.1 Назначение раздела
+
+Раздел `Analytics` используется для:
+
+- получения агрегированной статистики по парковочным зонам;
+- получения агрегированной статистики по камерам;
+- получения агрегированной статистики по партнёрам;
+- анализа качества маршрутизации;
+- анализа пользовательского фидбека;
+- анализа качества прогнозов и фактической занятости.
+
+Раздел предназначен для дашбордов, отчётов и мониторинга качества продукта.
+
+> В отличие от разделов `Occupancy`, `Forecasts`, `Routing` и `Feedback`, этот раздел возвращает **агрегированные показатели**, а не первичные записи.
+
+---
+
+## 12.2 Общие правила
+
+### Авторизация
+
+Все эндпоинты раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Модель доступа
+
+Для эндпоинтов раздела используются следующие разрешения:
+
+- `analytics.view` — просмотр аналитики в пределах доступных партнёрских данных;
+- `partner_statistics.view` — просмотр статистики по данным партнёра;
+- `admin.analytics.view` — просмотр всей аналитики системы.
+
+### Правила доступа
+
+- администратор платформы может просматривать аналитику по всей системе;
+- сотрудник партнёра может просматривать аналитику только в пределах доступных ему данных партнёра;
+- если аналитический endpoint поддерживает `partner_id`, сервер должен проверять, что пользователь имеет право видеть данные этого партнёра.
+
+### Общие ошибки
+
+| Код     | Тип                    | Описание                                                                 |
+|---------|------------------------|--------------------------------------------------------------------------|
+| **400** | `Bad Request`          | Невалидные параметры запроса.                                            |
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден, истёк или сессия завершена.                |
+| **403** | `Forbidden`            | У пользователя недостаточно прав для выполнения действия.                |
+| **404** | `Not Found`            | Аналитическое представление или связанный объект не найдены.             |
+| **422** | `Unprocessable Entity` | Ошибка валидации.                                                        |
+| **500** | `Internal Server Error`| Необработанная ошибка сервера.                                           |
+| **503** | `Service Unavailable`  | Сервис аналитики временно недоступен.                                    |
+
+Пример ответа:
+
+```json
+{
+  "error_description": "Validation error: from must be earlier than to"
+}
+```
+
+---
+
+## 12.3 Формат данных
+
+### Время
+
+Все временные значения передаются в формате UTC ISO 8601:
+
+```text
+2026-04-06T10:00:00Z
+```
+
+### Интервалы агрегации
+
+Поле `interval` поддерживает следующие значения:
+
+- `hour`
+- `day`
+- `week`
+- `month`
+
+### Метрики маршрутизации
+
+Поддерживаемые агрегированные метрики маршрутизации:
+
+- `routes_total` — общее число маршрутов;
+- `routes_completed` — число завершённых маршрутов;
+- `routes_cancelled` — число отменённых маршрутов;
+- `avg_eta_seconds` — среднее расчётное время прибытия;
+- `avg_distance_meters` — средняя длина маршрута;
+- `recommendation_acceptance_rate` — доля сценариев, в которых пользователь поехал к рекомендованной зоне;
+- `recommendation_success_rate` — доля сценариев, в которых пользователь припарковался в рекомендованной зоне.
+
+### Метрики зон
+
+Поддерживаемые агрегированные метрики по зонам:
+
+- `avg_occupancy` — средняя занятость;
+- `avg_free_count` — среднее число свободных мест;
+- `avg_confidence` — средняя достоверность оценок;
+- `occupancy_updates_count` — число обновлений занятости;
+- `forecasts_count` — число прогнозных точек;
+- `feedback_count` — число фидбеков, связанных с зоной.
+
+### Метрики качества прогноза
+
+Поддерживаемые агрегированные метрики:
+
+- `matched_points` — число пар “прогноз-факт”;
+- `avg_abs_error_occupied` — средняя абсолютная ошибка по `occupied`;
+- `avg_abs_error_free_count` — средняя абсолютная ошибка по `free_count`;
+- `free_space_prediction_accuracy` — точность предсказания факта наличия хотя бы одного свободного места.
+
+---
+
+## 12.4 Модель `AnalyticsPoint`
+
+Универсальная точка временного ряда аналитики.
+
+- `period_start` (`string`, ISO 8601) — начало периода агрегации.
+- `period_end` (`string`, ISO 8601) — конец периода агрегации.
+- `metrics` (`json`) — словарь агрегированных метрик.
+
+**Пример**
+
+```json
+{
+  "period_start": "2026-04-06T10:00:00Z",
+  "period_end": "2026-04-06T11:00:00Z",
+  "metrics": {
+    "routes_total": 12,
+    "routes_completed": 8,
+    "avg_eta_seconds": 312
+  }
+}
+```
+
+---
+
+## 12.5 Модель `PartnerAnalyticsSummary`
+
+Сводная аналитика по партнёру.
+
+- `partner_id` (`integer`) — идентификатор партнёра.
+- `zones_total` (`integer`) — число зон партнёра.
+- `cameras_total` (`integer`) — число камер партнёра.
+- `sources_total` (`integer`) — число источников данных партнёра.
+- `occupancy_updates_count` (`integer`) — число наблюдений занятости за период.
+- `forecasts_count` (`integer`) — число прогнозов за период.
+- `feedback_count` (`integer`) — число фидбеков, относящихся к данным партнёра.
+- `avg_occupancy` (`float | null`) — средняя занятость по зонам партнёра.
+- `avg_confidence` (`float | null`) — средняя достоверность данных.
+- `updated_at` (`string`, ISO 8601) — время формирования сводки.
+
+**Пример**
+
+```json
+{
+  "partner_id": 10,
+  "zones_total": 48,
+  "cameras_total": 12,
+  "sources_total": 3,
+  "occupancy_updates_count": 15234,
+  "forecasts_count": 6400,
+  "feedback_count": 182,
+  "avg_occupancy": 0.71,
+  "avg_confidence": 0.78,
+  "updated_at": "2026-04-06T10:40:00Z"
+}
+```
+
+---
+
+## 12.6 Модель `ZoneAnalyticsSummary`
+
+Сводная аналитика по зоне.
+
+- `zone_id` (`integer`) — идентификатор зоны.
+- `camera_id` (`integer | null`) — идентификатор камеры.
+- `partner_id` (`integer | null`) — идентификатор партнёра.
+- `occupancy_updates_count` (`integer`) — число наблюдений занятости за период.
+- `forecasts_count` (`integer`) — число прогнозных точек за период.
+- `feedback_count` (`integer`) — число фидбеков по зоне.
+- `avg_occupancy` (`float | null`) — средняя занятость зоны.
+- `avg_free_count` (`float | null`) — среднее число свободных мест.
+- `avg_confidence` (`float | null`) — средняя достоверность данных.
+- `avg_abs_error_occupied` (`float | null`) — средняя абсолютная ошибка прогноза по `occupied`.
+- `free_space_prediction_accuracy` (`float | null`) — точность предсказания наличия свободного места.
+- `updated_at` (`string`, ISO 8601) — время формирования сводки.
+
+**Пример**
+
+```json
+{
+  "zone_id": 1,
+  "camera_id": 1,
+  "partner_id": 10,
+  "occupancy_updates_count": 634,
+  "forecasts_count": 288,
+  "feedback_count": 23,
+  "avg_occupancy": 0.73,
+  "avg_free_count": 1.8,
+  "avg_confidence": 0.77,
+  "avg_abs_error_occupied": 0.94,
+  "free_space_prediction_accuracy": 0.81,
+  "updated_at": "2026-04-06T10:40:00Z"
+}
+```
+
+---
+
+## 12.7 `GET /analytics/overview`
+
+Возвращает сводную аналитику по системе или по доступному контуру данных пользователя.
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `partner_id` (`integer`) — фильтр по партнёру.
+- `from` (`string`, ISO 8601) — нижняя граница периода.
+- `to` (`string`, ISO 8601) — верхняя граница периода.
+
+**Response (200)**
+
+- `routes_total` (`integer`)
+- `feedback_total` (`integer`)
+- `zones_total` (`integer`)
+- `cameras_total` (`integer`)
+- `sources_total` (`integer`)
+- `avg_occupancy` (`float | null`)
+- `avg_confidence` (`float | null`)
+- `recommendation_acceptance_rate` (`float | null`)
+- `recommendation_success_rate` (`float | null`)
+- `updated_at` (`string`, ISO 8601)
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/overview?partner_id=10&from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "routes_total": 248,
+  "feedback_total": 96,
+  "zones_total": 48,
+  "cameras_total": 12,
+  "sources_total": 3,
+  "avg_occupancy": 0.71,
+  "avg_confidence": 0.78,
+  "recommendation_acceptance_rate": 0.64,
+  "recommendation_success_rate": 0.49,
+  "updated_at": "2026-04-06T10:40:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                           |
+|---------|------------------------|----------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.            |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра аналитики.         |
+| **422** | `Unprocessable Entity` | Ошибка валидации диапазона дат.                    |
+
+---
+
+## 12.8 `GET /analytics/partners`
+
+Возвращает агрегированную аналитику по партнёрам.
+
+**Требуемые разрешения**
+- `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `partner_id` (`integer`) — фильтр по конкретному партнёру.
+- `from` (`string`, ISO 8601) — нижняя граница периода.
+- `to` (`string`, ISO 8601) — верхняя граница периода.
+- `top` (`integer`, 1..100`) — максимальное число элементов.
+- `offset` (`integer`, >=0`) — смещение для пагинации.
+
+**Response (200)**
+
+- `items` (`PartnerAnalyticsSummary[]`) — список агрегатов по партнёрам.
+- `total` (`integer`)
+- `top` (`integer`)
+- `offset` (`integer`)
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/partners?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "partner_id": 10,
+      "zones_total": 48,
+      "cameras_total": 12,
+      "sources_total": 3,
+      "occupancy_updates_count": 15234,
+      "forecasts_count": 6400,
+      "feedback_count": 182,
+      "avg_occupancy": 0.71,
+      "avg_confidence": 0.78,
+      "updated_at": "2026-04-06T10:40:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+---
+
+## 12.9 `GET /analytics/partners/<partner_id>`
+
+Возвращает сводную аналитику по конкретному партнёру.
+
+**Path-параметры**
+- `partner_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `partner_statistics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `from` (`string`, ISO 8601)
+- `to` (`string`, ISO 8601)
+
+**Response (200)** — объект `PartnerAnalyticsSummary`
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/partners/10?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                           |
+|---------|------------------------|----------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.            |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра аналитики партнёра.|
+| **404** | `Not Found`            | Партнёр не найден.                                 |
+
+---
+
+## 12.10 `GET /analytics/zones`
+
+Возвращает агрегированную аналитику по зонам.
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `partner_id` (`integer`) — фильтр по партнёру.
+- `camera_id` (`integer`) — фильтр по камере.
+- `zone_id` (`integer`) — фильтр по зоне.
+- `from` (`string`, ISO 8601) — нижняя граница периода.
+- `to` (`string`, ISO 8601) — верхняя граница периода.
+- `top` (`integer`, 1..100`)
+- `offset` (`integer`, >=0)
+
+**Response (200)**
+
+- `items` (`ZoneAnalyticsSummary[]`) — список агрегатов по зонам.
+- `total` (`integer`)
+- `top` (`integer`)
+- `offset` (`integer`)
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/zones?partner_id=10&top=20&offset=0 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "zone_id": 1,
+      "camera_id": 1,
+      "partner_id": 10,
+      "occupancy_updates_count": 634,
+      "forecasts_count": 288,
+      "feedback_count": 23,
+      "avg_occupancy": 0.73,
+      "avg_free_count": 1.8,
+      "avg_confidence": 0.77,
+      "avg_abs_error_occupied": 0.94,
+      "free_space_prediction_accuracy": 0.81,
+      "updated_at": "2026-04-06T10:40:00Z"
+    }
+  ],
+  "total": 1,
+  "top": 20,
+  "offset": 0
+}
+```
+
+---
+
+## 12.11 `GET /analytics/zones/<zone_id>`
+
+Возвращает сводную аналитику по конкретной зоне.
+
+**Path-параметры**
+- `zone_id` (`integer`, required)
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (необязательные)**
+
+- `from` (`string`, ISO 8601)
+- `to` (`string`, ISO 8601)
+
+**Response (200)** — объект `ZoneAnalyticsSummary`
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/zones/1?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                           |
+|---------|------------------------|----------------------------------------------------|
+| **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.            |
+| **403** | `Forbidden`            | Недостаточно прав для просмотра аналитики зоны.    |
+| **404** | `Not Found`            | Зона не найдена.                                   |
+
+---
+
+## 12.12 `GET /analytics/routes`
+
+Возвращает агрегированный временной ряд по маршрутам.
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (required)**
+
+- `from` (`string`, ISO 8601) — нижняя граница периода.
+- `to` (`string`, ISO 8601) — верхняя граница периода.
+- `interval` (`string`) — интервал агрегации: `hour`, `day`, `week`, `month`.
+
+**Query-параметры (optional)**
+
+- `partner_id` (`integer`) — фильтр по партнёру.
+- `mode` (`string`) — фильтр по режиму маршрута.
+- `status` (`string`) — фильтр по статусу маршрута.
+
+**Response (200)**
+
+- `items` (`AnalyticsPoint[]`) — временной ряд.
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/routes?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z&interval=day HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "period_start": "2026-04-06T00:00:00Z",
+      "period_end": "2026-04-07T00:00:00Z",
+      "metrics": {
+        "routes_total": 58,
+        "routes_completed": 37,
+        "routes_cancelled": 11,
+        "avg_eta_seconds": 328,
+        "avg_distance_meters": 1850,
+        "recommendation_acceptance_rate": 0.62,
+        "recommendation_success_rate": 0.48
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 12.13 `GET /analytics/feedback`
+
+Возвращает агрегированный временной ряд по пользовательскому фидбеку.
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (required)**
+
+- `from` (`string`, ISO 8601)
+- `to` (`string`, ISO 8601)
+- `interval` (`string`) — `hour`, `day`, `week`, `month`
+
+**Query-параметры (optional)**
+
+- `partner_id` (`integer`)
+- `feedback_type` (`string`)
+- `result` (`string`)
+
+**Response (200)**
+
+- `items` (`AnalyticsPoint[]`) — временной ряд.
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/feedback?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z&interval=day HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "period_start": "2026-04-06T00:00:00Z",
+      "period_end": "2026-04-07T00:00:00Z",
+      "metrics": {
+        "feedback_total": 21,
+        "found_parking_count": 12,
+        "not_found_count": 5,
+        "avg_rating": 4.1,
+        "used_recommended_zone_rate": 0.67,
+        "parked_in_recommended_zone_rate": 0.52,
+        "left_parking_space_rate": 0.28
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 12.14 `GET /analytics/forecast-quality`
+
+Возвращает агрегированную аналитику качества прогнозов по сравнению с фактической занятостью.
+
+**Требуемые разрешения**
+- `analytics.view` или `admin.analytics.view`
+
+**Headers**
+- `Authorization: Bearer <access_token>`
+
+**Query-параметры (required)**
+
+- `from` (`string`, ISO 8601)
+- `to` (`string`, ISO 8601)
+- `interval` (`string`) — `hour`, `day`, `week`, `month`
+
+**Query-параметры (optional)**
+
+- `partner_id` (`integer`)
+- `zone_id` (`integer`)
+- `camera_id` (`integer`)
+- `model_type` (`string`)
+
+**Response (200)**
+
+- `items` (`AnalyticsPoint[]`) — временной ряд качества прогнозов.
+
+**Пример запроса**
+
+```http
+GET /api/v1/analytics/forecast-quality?from=2026-04-01T00:00:00Z&to=2026-04-06T23:59:59Z&interval=day HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "period_start": "2026-04-06T00:00:00Z",
+      "period_end": "2026-04-07T00:00:00Z",
+      "metrics": {
+        "matched_points": 412,
+        "avg_abs_error_occupied": 0.94,
+        "avg_abs_error_free_count": 0.94,
+        "free_space_prediction_accuracy": 0.81
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 12.15 Требования к другим разделам API
+
+Раздел `Analytics` должен использовать первичные данные из разделов:
+
+- `Occupancy`
+- `Forecasts`
+- `Routing`
+- `Feedback`
+- `Parking Zones`
+- `Cameras`
+- `Data Sources`
+
+Если требуется получить не агрегаты, а первичные записи, следует использовать профильные разделы, а не `Analytics`.
+
+---
