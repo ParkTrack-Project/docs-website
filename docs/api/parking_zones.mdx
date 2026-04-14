@@ -267,10 +267,10 @@ Authorization: Bearer <access_token>
 - `partner_id` (`integer`) — вернуть зоны только указанного партнёра.
 - `is_active` (`boolean`) — фильтр по активности зоны.
 - `min_free_count` (`integer`) — фильтр по минимальному числу свободных мест.
-- `min_confidence` (`integer`) — фильтр по достоверности оценки занятости.
+- `min_confidence` (`float`, `0..1`) — фильтр по достоверности оценки занятости.
 - `max_pay` (`integer`) — фильтр по максимальной стоимости парковки в час.
-- `show_private` (`boolean`) — возвращать ли частные или ограниченно доступные парковки.
-- `show_accessible` (`boolean`) — возвращать ли инвалидные парковки.
+- `include_private` (`boolean`) — возвращать ли частные или ограниченно доступные парковки.
+- `include_accessible` (`boolean`) — возвращать ли инвалидные парковки.
 - `hide_location_types` (`string`) — перечисление типов расположения для исключения из ответа, например `street,yard`.
 - `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
 - `view` (`string`) — режим ответа. Поддерживаемые значения:
@@ -285,7 +285,9 @@ Authorization: Bearer <access_token>
 
 > Параметр `bbox` рекомендуется использовать при загрузке зон для карты, чтобы не запрашивать все зоны сразу.
 
-В случае отсутствия определенных данных о парковке (например, инвалидная она или нет), при указании соответствующих фильтров, возвращать ее не следует.
+### Правило применения булевых и категориальных фильтров:
+
+Если у зоны отсутствует значение поля, по которому выполняется фильтрация, такая зона исключается из результата.
 
 **Пример запроса — полная модель**
 
@@ -345,6 +347,7 @@ Authorization: Bearer <token>
     "is_active": true,
     "location_type": "street",
     "is_accessible": false,
+    "is_private": false,
     "occupancy_updated_at": "2026-04-06T10:10:00Z",
     "created_at": "2026-04-06T10:00:00Z",
     "updated_at": "2026-04-06T10:10:00Z"
@@ -612,6 +615,7 @@ Authorization: Bearer <token>
 - `geometry` (`GeoJSON Polygon, optional`) — геометрия зоны на карте.
 - `image_polygon` (`array[4], optional`) — геометрия зоны в координатах изображения камеры.
 - `location_type` (`string, optional`)
+- `is_private` (`boolean, optional`)
 - `is_accessible` (`boolean, optional`)
 - `is_active` (`boolean, optional`)
 
