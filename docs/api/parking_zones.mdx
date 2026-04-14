@@ -52,7 +52,7 @@ Authorization: Bearer <access_token>
 
 Сервер возвращает только те зоны, которые доступны текущему пользователю в рамках его глобальных прав, членства в партнёрской организации и области доступа к данным.
 
-Для зон партнёров рекомендуется использовать:
+Для зон партнёров необходимо использовать:
 
 - `partner_id` — владелец зоны;
 - `created_by_user_id` — пользователь, создавший зону.
@@ -140,21 +140,21 @@ Authorization: Bearer <access_token>
 - `partner_id` (`integer | null`) — идентификатор партнёра-владельца зоны.
 - `created_by_user_id` (`integer | null`) — идентификатор пользователя, создавшего зону.
 - `is_active` (`boolean`) — активна ли зона.
-- `location_type` (`string | null`) — тип расположения зоны. Рекомендуемые значения:
-  - `street`
-  - `open_lot`
-  - `underground`
-  - `multilevel`
-  - `mall`
-  - `private`
-- `is_accessible` (`boolean | null`) — относится ли зона к парковке для маломобильных пользователей.
+- `location_type` (`string | null`) — тип расположения зоны. Используемые значения:
+  - `street` (Уличная парковка вдоль дороги или на проезжей части. У тротуара, в карманах, выделенная синим и т.д.)
+  - `yard` (Парковка во дворе жилого дома, на территории жилого комплекса или офисного здания)
+  - `open_lot` (Открытая наземная парковочная площадка. Если это отдельная площадка, а не уличные места вдоль дороги)
+  - `underground` (Подземная парковка или подземный паркинг.)
+  - `multilevel` (Наземный крытый паркинг на несколько уровней)
+- `is_private` (`boolean | null`) — является ли частной или ограниченно доступной парковкой. Например, только для сотрудников компании или жителей дома.
+- `is_accessible` (`boolean | null`) — относится ли зона к парковке только для инвалидов.
 - `confidence_level` (`string | null`) — категориальная оценка достоверности:
   - `very_low`
   - `low`
   - `medium`
   - `high`
 
-> Поля `partner_id`, `created_by_user_id`, `is_active`, `location_type`, `is_accessible`, `confidence_level` являются дополнительными.
+> Поля `partner_id`, `created_by_user_id`, `is_active`, `location_type`, `is_private`, `is_accessible`, `confidence_level` являются дополнительными.
 
 **Пример**
 
@@ -191,6 +191,7 @@ Authorization: Bearer <access_token>
   "created_by_user_id": 123,
   "is_active": true,
   "location_type": "street",
+  "is_private": false,
   "is_accessible": false,
   "occupancy_updated_at": "2026-04-06T10:10:00Z",
   "created_at": "2026-04-06T10:00:00Z",
@@ -214,6 +215,7 @@ Authorization: Bearer <access_token>
 - `pay` (`integer`) — стоимость парковки в рублях в час.
 - `geometry` (`GeoJSON Polygon`) — геометрия зоны на карте.
 - `location_type` (`string | null`) — тип расположения.
+- `is_private` (`boolean | null`) — является ли частной или ограниченно доступной парковкой. Например, только для сотрудников компании или жителей дома.
 - `is_accessible` (`boolean | null`) — признак специальной парковки.
 - `occupancy_updated_at` (`string`, ISO 8601) — время обновления занятости.
 - `is_active` (`boolean`) — активна ли зона.
@@ -243,6 +245,7 @@ Authorization: Bearer <access_token>
     ]
   },
   "location_type": "street",
+  "is_private": false,
   "is_accessible": false,
   "occupancy_updated_at": "2026-04-06T10:10:00Z",
   "is_active": true
@@ -262,10 +265,13 @@ Authorization: Bearer <access_token>
 
 - `camera_id` (`integer`) — вернуть зоны только указанной камеры.
 - `partner_id` (`integer`) — вернуть зоны только указанного партнёра.
-- `zone_type` (`string`) — фильтр по типу парковки.
 - `is_active` (`boolean`) — фильтр по активности зоны.
 - `min_free_count` (`integer`) — фильтр по минимальному числу свободных мест.
+- `min_confidence` (`integer`) — фильтр по достоверности оценки занятости.
 - `max_pay` (`integer`) — фильтр по максимальной стоимости парковки в час.
+- `show_private` (`boolean`) — возвращать ли частные или ограниченно доступные парковки.
+- `show_accessible` (`boolean`) — возвращать ли инвалидные парковки.
+- `hide_location_types` (`string`) — перечисление типов расположения для исключения из ответа, например `street,yard`.
 - `bbox` (`string`) — пространственный фильтр в формате `<min_longitude>,<min_latitude>,<max_longitude>,<max_latitude>`.
 - `view` (`string`) — режим ответа. Поддерживаемые значения:
   - `full` — полная модель зоны (по умолчанию);
@@ -278,6 +284,8 @@ Authorization: Bearer <access_token>
 ```
 
 > Параметр `bbox` рекомендуется использовать при загрузке зон для карты, чтобы не запрашивать все зоны сразу.
+
+В случае отсутствия определенных данных о парковке (например, инвалидная она или нет), при указании соответствующих фильтров, возвращать ее не следует.
 
 **Пример запроса — полная модель**
 
@@ -415,6 +423,7 @@ Authorization: Bearer <token>
 
 ### Дополнительные поля
 - `location_type` (`string`, optional)
+- `is_private` (`boolean`, optional)
 - `is_accessible` (`boolean`, optional)
 
 **Валидация**
@@ -458,6 +467,7 @@ Authorization: Bearer <token>
     [32, 145]
   ],
   "location_type": "street",
+  "is_private": false,
   "is_accessible": false
 }
 ```
@@ -555,6 +565,7 @@ Authorization: Bearer <token>
   "created_by_user_id": 123,
   "is_active": true,
   "location_type": "street",
+  "is_private": false,
   "is_accessible": false,
   "occupancy_updated_at": "2026-04-06T10:10:00Z",
   "created_at": "2026-04-06T10:00:00Z",
@@ -687,6 +698,7 @@ Authorization: Bearer <token>
   "created_by_user_id": 123,
   "is_active": true,
   "location_type": "street",
+  "is_private": false,
   "is_accessible": false,
   "occupancy_updated_at": "2026-04-06T10:10:00Z",
   "created_at": "2026-04-06T10:00:00Z",
