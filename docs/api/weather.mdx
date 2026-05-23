@@ -7,7 +7,7 @@ title: Weather
 
 Раздел описывает хранение и чтение погодных наблюдений, привязанных к камере и конкретному часу.
 
-## 7.1 Общие правила
+## 12.1 Общие правила
 
 ### Авторизация
 
@@ -42,7 +42,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 7.2 Формат данных
+## 12.2 Формат данных
 
 ### Время
 
@@ -68,7 +68,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 7.3 Модель `WeatherObservation`
+## 12.3 Модель `WeatherObservation`
 
 Полная модель погодного наблюдения.
 
@@ -90,7 +90,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 7.4 `GET /weather`
+## 12.4 `GET /weather`
 
 Возвращает погодные наблюдения.
 
@@ -140,7 +140,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 7.5 `POST /weather/new`
+## 12.5 `POST /weather/new`
 
 Создаёт новое погодное наблюдение.
 
@@ -203,7 +203,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 7.6 `GET /weather/<camera_id>/<observed_at>`
+## 12.6 `GET /weather/<camera_id>/<observed_at>`
 
 Возвращает погодное наблюдение для конкретной камеры и конкретного часа.
 
@@ -248,7 +248,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 7.7 Требования к таблице `weather_observations`
+## 12.7 Требования к таблице `weather_observations`
 
 Рекомендуемая структура таблицы:
 
