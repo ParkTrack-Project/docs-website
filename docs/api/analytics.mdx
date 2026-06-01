@@ -1,0 +1,1344 @@
+---
+sidebar_position: 13
+title: Analytics
+---
+# 11a. Admin Analytics
+
+Раздел описывает эндпоинты аналитики для админ-панели ParkTrack.
+
+Эндпоинты используются для партнёрского раздела **«Аналитика»**:
+
+* общий дашборд;
+* аналитика парковочной зоны;
+* аналитика камеры;
+* просмотр распознавания;
+* оценка качества распознавания.
+
+---
+
+## 11a.1 Совместимость с текущей реализацией
+
+Новые analytics endpoint-ы не заменяют существующие endpoint-ы камер и зон.
+
+Для админ-панели нужно продолжать использовать существующие endpoint-ы:
+
+* `GET /cameras` — список камер, фильтры, карта камер;
+* `GET /cameras/<camera_id>` — карточка камеры;
+* `GET /cameras/<camera_id>/snapshot` — снимок камеры;
+* `GET /zones` — список парковочных зон, фильтры, карта зон;
+* `GET /zones/<zone_id>` — карточка зоны;
+* `GET /partners` — выбор партнёра для администратора.
+
+Не нужно создавать отдельные analytics endpoint-ы для:
+
+* списка камер;
+* списка зон;
+* карточки камеры;
+* карточки зоны;
+* снапшота камеры.
+
+Снапшоты использовать через существующий endpoint:
+
+* обычный снимок: `GET /cameras/<camera_id>/snapshot`;
+* снимок с разметкой: `GET /cameras/<camera_id>/snapshot?annotated=true&fallback_to_raw=true`.
+
+Новые endpoint-ы нужны только для агрегированной аналитики:
+
+* `GET /admin/analytics/summary`
+* `GET /admin/analytics/occupancy-history`
+* `GET /admin/analytics/occupancy-forecast`
+* `GET /admin/analytics/observations-rate`
+* `GET /admin/analytics/confidence`
+* `GET /admin/analytics/update-frequency`
+* `GET /admin/analytics/detector-health`
+* `GET /admin/analytics/cameras/<camera_id>/detections`
+* `GET /admin/analytics/detections/<detection_run_id>`
+* `POST /admin/analytics/detections/<detection_run_id>/feedback`
+* `GET /admin/analytics/detections/<detection_run_id>/feedback`
+* `GET /admin/analytics/detections/<detection_run_id>/feedback/<feedback_id>`
+* `GET /admin/analytics/forecast-quality`
+
+---
+
+## 11a.2 Общие правила
+
+### Авторизация
+
+Все endpoint-ы раздела требуют авторизации.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### Разрешения
+
+Для раздела используются разрешения:
+
+* `analytics.view` — просмотр аналитики;
+* `analytics.feedback.create` — создание оценки качества распознавания;
+* `analytics.feedback.view` — просмотр оценок качества;
+* `admin.monitoring.view` — доступ к техническим метрикам и расширенному мониторингу;
+* `admin.forecasts.view` — просмотр качества прогнозов.
+
+### Модель доступа
+
+Пользователь с ролью `partner` видит только камеры и парковочные зоны своего партнёра.
+
+Пользователь с ролью `admin` может:
+
+* смотреть аналитику по всем данным;
+* фильтровать аналитику по `partner_id`;
+* смотреть качество прогнозов;
+* смотреть список feedback-ов по распознаванию.
+
+Если пользователь запрашивает чужую камеру, зону или распознавание, сервер должен вернуть `403 Forbidden`.
+
+### Общие query-параметры
+
+Большинство endpoint-ов поддерживает:
+
+* `partner_id` (`integer`, optional) — фильтр по партнёру. Доступен только администратору.
+* `from` (`string`, ISO 8601, required) — начало периода.
+* `to` (`string`, ISO 8601, required) — конец периода.
+* `zone_id` (`integer`, optional) — фильтр по парковочной зоне.
+* `camera_id` (`integer`, optional) — фильтр по камере.
+* `granularity` (`string`, optional) — детализация временных рядов.
+
+Поддерживаемые значения `granularity`:
+
+* `5m`
+* `15m`
+* `1h`
+* `1d`
+
+Если период слишком большой для выбранной детализации, сервер может вернуть данные с более крупной детализацией. В этом случае фактическая детализация должна быть указана в поле `granularity` ответа.
+
+### Общие ошибки
+
+| Код     | Тип                     | Описание                                                  |
+| ------- | ----------------------- | --------------------------------------------------------- |
+| **400** | `Bad Request`           | Невалидный запрос или несовместимые параметры.            |
+| **401** | `Unauthorized`          | Токен отсутствует, невалиден или истёк.                   |
+| **403** | `Forbidden`             | Недостаточно прав или объект не принадлежит пользователю. |
+| **404** | `Not Found`             | Объект не найден.                                         |
+| **422** | `Unprocessable Entity`  | Ошибка валидации параметров.                              |
+| **500** | `Internal Server Error` | Необработанная ошибка сервера.                            |
+| **503** | `Service Unavailable`   | Зависимый сервис временно недоступен.                     |
+
+Пример ошибки:
+
+```json
+{
+  "error_description": "Access to this camera is forbidden"
+}
+```
+
+---
+
+## 11a.3 Формат данных
+
+### Время
+
+Все временные значения передаются в UTC ISO 8601:
+
+```text
+2026-05-31T12:00:00Z
+```
+
+### Проценты
+
+Проценты передаются числом от `0` до `100`.
+
+Пример:
+
+```json
+{
+  "occupancy_percent": 72.5
+}
+```
+
+### Confidence
+
+Confidence передаётся числом от `0` до `1`.
+
+Пример:
+
+```json
+{
+  "confidence_avg": 0.87
+}
+```
+
+В интерфейсе это значение отображается как `87%`.
+
+В интерфейсе нельзя называть confidence точностью. Корректное название:
+
+```text
+Уверенность модели
+```
+
+### Статусы зон
+
+В analytics ответах могут использоваться статусы:
+
+* `online` — данные свежие;
+* `stale` — данные устарели;
+* `offline` — давно нет обновлений;
+* `no_data` — наблюдений ещё не было;
+* `low_confidence` — низкая уверенность модели;
+* `error` — ошибка обработки.
+
+### Статусы распознавания
+
+Для detection runs используются статусы:
+
+* `success`
+* `failed`
+* `partial`
+
+---
+
+## 11a.4 Модель `AnalyticsSummary`
+
+Сводка для верхних KPI-карточек общего дашборда.
+
+Поля:
+
+* `active_zones_count` (`integer`) — количество активных зон.
+* `total_capacity` (`integer`) — общее количество парковочных мест.
+* `current_occupied_count` (`integer | null`) — занято сейчас.
+* `current_free_count` (`integer | null`) — свободно сейчас.
+* `avg_occupancy_percent` (`float | null`) — средняя занятость за период.
+* `freshest_update_at` (`string | null`) — самое свежее обновление.
+* `oldest_update_at` (`string | null`) — самое старое последнее обновление среди зон.
+* `avg_update_interval_sec` (`float | null`) — средний интервал обновления.
+* `max_update_interval_sec` (`float | null`) — максимальный интервал обновления.
+* `avg_confidence` (`float | null`) — средняя уверенность модели.
+
+**Пример**
+
+```json
+{
+  "active_zones_count": 12,
+  "total_capacity": 180,
+  "current_occupied_count": 93,
+  "current_free_count": 87,
+  "avg_occupancy_percent": 61.4,
+  "freshest_update_at": "2026-05-31T12:04:00Z",
+  "oldest_update_at": "2026-05-31T11:42:00Z",
+  "avg_update_interval_sec": 68.5,
+  "max_update_interval_sec": 420,
+  "avg_confidence": 0.86
+}
+```
+
+---
+
+## 11a.5 Модель `OccupancyHistoryPoint`
+
+Точка истории занятости.
+
+Поля:
+
+* `timestamp` (`string`) — время точки.
+* `zone_id` (`integer`) — идентификатор зоны.
+* `camera_id` (`integer`) — идентификатор камеры.
+* `occupied_count` (`integer | null`) — занято.
+* `free_count` (`integer | null`) — свободно.
+* `capacity` (`integer`) — всего мест.
+* `occupancy_percent` (`float | null`) — занятость в процентах.
+* `confidence_avg` (`float | null`) — средняя уверенность модели.
+* `observations_count` (`integer`) — количество наблюдений в интервале.
+
+**Пример**
+
+```json
+{
+  "timestamp": "2026-05-31T12:00:00Z",
+  "zone_id": 15,
+  "camera_id": 3,
+  "occupied_count": 12,
+  "free_count": 8,
+  "capacity": 20,
+  "occupancy_percent": 60,
+  "confidence_avg": 0.87,
+  "observations_count": 4
+}
+```
+
+---
+
+## 11a.6 Модель `OccupancyForecastPoint`
+
+Точка прогноза занятости.
+
+Поля:
+
+* `timestamp` (`string`) — время, на которое построен прогноз.
+* `zone_id` (`integer`) — идентификатор зоны.
+* `predicted_occupied_count` (`float | null`) — прогноз занятых мест.
+* `predicted_free_count` (`float | null`) — прогноз свободных мест.
+* `predicted_occupancy_percent` (`float | null`) — прогноз занятости.
+* `model_version` (`string | null`) — версия модели.
+* `forecast_created_at` (`string | null`) — время создания прогноза.
+
+**Пример**
+
+```json
+{
+  "timestamp": "2026-05-31T13:00:00Z",
+  "zone_id": 15,
+  "predicted_occupied_count": 14,
+  "predicted_free_count": 6,
+  "predicted_occupancy_percent": 70,
+  "model_version": "v1",
+  "forecast_created_at": "2026-05-31T12:00:00Z"
+}
+```
+
+---
+
+## 11a.7 Модель `DetectorHealthRow`
+
+Строка таблицы проблемных зон.
+
+Поля:
+
+* `zone_id` (`integer`) — идентификатор зоны.
+* `camera_id` (`integer`) — идентификатор камеры.
+* `camera_title` (`string`) — название камеры.
+* `capacity` (`integer`) — всего мест.
+* `occupied_count` (`integer | null`) — занято сейчас.
+* `free_count` (`integer | null`) — свободно сейчас.
+* `occupancy_percent` (`float | null`) — занятость.
+* `confidence_avg` (`float | null`) — средняя уверенность модели.
+* `last_update_at` (`string | null`) — последнее обновление.
+* `sec_ago` (`integer | null`) — сколько секунд прошло с последнего обновления.
+* `avg_update_interval_sec` (`float | null`) — средний интервал обновления.
+* `max_update_interval_sec` (`float | null`) — максимальный интервал обновления.
+* `status` (`string`) — статус зоны.
+
+**Пример**
+
+```json
+{
+  "zone_id": 15,
+  "camera_id": 3,
+  "camera_title": "Кронверкский проспект",
+  "capacity": 20,
+  "occupied_count": 12,
+  "free_count": 8,
+  "occupancy_percent": 60,
+  "confidence_avg": 0.87,
+  "last_update_at": "2026-05-31T12:00:00Z",
+  "sec_ago": 120,
+  "avg_update_interval_sec": 65.2,
+  "max_update_interval_sec": 420,
+  "status": "online"
+}
+```
+
+---
+
+## 11a.8 Модель `DetectionRun`
+
+Запуск распознавания.
+
+Поля:
+
+* `detection_run_id` (`integer`) — идентификатор распознавания.
+* `camera_id` (`integer`) — идентификатор камеры.
+* `zone_id` (`integer | null`) — идентификатор зоны.
+* `started_at` (`string`) — время начала.
+* `finished_at` (`string | null`) — время завершения.
+* `status` (`string`) — статус.
+* `processing_time_ms` (`integer | null`) — время обработки.
+* `model_version` (`string | null`) — версия модели.
+* `detected_cars_count` (`integer | null`) — количество найденных машин.
+* `occupied_count` (`integer | null`) — занято.
+* `free_count` (`integer | null`) — свободно.
+* `capacity` (`integer | null`) — всего мест.
+* `confidence_avg` (`float | null`) — средняя уверенность модели.
+* `error_code` (`string | null`) — код ошибки.
+* `error_message` (`string | null`) — текст ошибки.
+* `has_feedback` (`boolean`) — есть ли оценка качества.
+* `raw_snapshot_url` (`string | null`) — ссылка на raw-изображение распознавания, если хранится.
+* `annotated_snapshot_url` (`string | null`) — ссылка на изображение с разметкой, если хранится.
+
+> Для текущего снимка камеры и текущего снимка с разметкой использовать `GET /cameras/<camera_id>/snapshot`. Поля `raw_snapshot_url` и `annotated_snapshot_url` нужны только если сервер хранит конкретный кадр, на котором был выполнен detection run.
+
+---
+
+## 11a.9 Модель `DetectionFeedback`
+
+Оценка качества распознавания.
+
+Поля:
+
+* `feedback_id` (`integer`) — идентификатор оценки.
+* `detection_run_id` (`integer`) — идентификатор распознавания.
+* `created_by_user_id` (`integer`) — пользователь, оставивший оценку.
+* `created_by_email` (`string | null`) — email пользователя.
+* `rating` (`string`) — оценка.
+* `expected_occupied_count` (`integer | null`) — правильное количество занятых мест.
+* `expected_free_count` (`integer | null`) — правильное количество свободных мест.
+* `error_type` (`string | null`) — тип ошибки.
+* `comment` (`string | null`) — комментарий.
+* `created_at` (`string`) — дата создания.
+* `updated_at` (`string | null`) — дата последнего изменения.
+
+Допустимые значения `rating`:
+
+* `correct`
+* `partially_correct`
+* `incorrect`
+
+Допустимые значения `error_type`:
+
+* `false_positive_car`
+* `false_negative_car`
+* `wrong_zone_assignment`
+* `bad_lighting`
+* `bad_camera_angle`
+* `calibration_problem`
+* `other`
+
+---
+
+## 11a.10 `GET /admin/analytics/summary`
+
+Возвращает сводку для KPI-карточек общего дашборда.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required) — начало периода.
+* `to` (`string`, required) — конец периода.
+* `zone_id` (`integer`, optional) — фильтр по зоне.
+* `camera_id` (`integer`, optional) — фильтр по камере.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/summary?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `AnalyticsSummary`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "active_zones_count": 12,
+  "total_capacity": 180,
+  "current_occupied_count": 93,
+  "current_free_count": 87,
+  "avg_occupancy_percent": 61.4,
+  "freshest_update_at": "2026-05-31T12:04:00Z",
+  "oldest_update_at": "2026-05-31T11:42:00Z",
+  "avg_update_interval_sec": 68.5,
+  "max_update_interval_sec": 420,
+  "avg_confidence": 0.86
+}
+```
+
+---
+
+## 11a.11 `GET /admin/analytics/occupancy-history`
+
+Возвращает историю занятости для графиков.
+
+Используется на:
+
+* общем дашборде;
+* странице зоны;
+* графике факта рядом с прогнозом.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required) — начало периода.
+* `to` (`string`, required) — конец периода.
+* `zone_id` (`integer`, optional) — фильтр по зоне.
+* `camera_id` (`integer`, optional) — фильтр по камере.
+* `granularity` (`string`, optional) — детализация.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/occupancy-history?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `granularity` (`string`) — фактическая детализация.
+* `points` (`OccupancyHistoryPoint[]`) — точки графика.
+
+**Пример ответа (200)**
+
+```json
+{
+  "granularity": "1h",
+  "points": [
+    {
+      "timestamp": "2026-05-31T12:00:00Z",
+      "zone_id": 15,
+      "camera_id": 3,
+      "occupied_count": 12,
+      "free_count": 8,
+      "capacity": 20,
+      "occupancy_percent": 60,
+      "confidence_avg": 0.87,
+      "observations_count": 4
+    }
+  ]
+}
+```
+
+---
+
+## 11a.12 `GET /admin/analytics/occupancy-forecast`
+
+Возвращает прогноз занятости.
+
+Используется на:
+
+* общем дашборде;
+* странице зоны;
+* админском графике качества прогнозов.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `zone_id` (`integer`, required) — парковочная зона.
+* `from` (`string`, required) — начало периода прогноза.
+* `to` (`string`, required) — конец периода прогноза.
+* `forecast_created_at` (`string`, optional) — версия прогноза по времени создания.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/occupancy-forecast?zone_id=15&from=2026-05-31T12:00:00Z&to=2026-06-01T12:00:00Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `available` (`boolean`) — доступен ли прогноз.
+* `reason` (`string | null`) — причина отсутствия прогноза.
+* `points` (`OccupancyForecastPoint[]`) — точки прогноза.
+
+Возможные значения `reason`:
+
+* `insufficient_history`
+* `model_not_ready`
+* `prediction_service_unavailable`
+* `no_recent_observations`
+
+**Пример ответа (200)**
+
+```json
+{
+  "available": true,
+  "reason": null,
+  "points": [
+    {
+      "timestamp": "2026-05-31T13:00:00Z",
+      "zone_id": 15,
+      "predicted_occupied_count": 14,
+      "predicted_free_count": 6,
+      "predicted_occupancy_percent": 70,
+      "model_version": "v1",
+      "forecast_created_at": "2026-05-31T12:00:00Z"
+    }
+  ]
+}
+```
+
+**Пример ответа, если прогноза нет**
+
+```json
+{
+  "available": false,
+  "reason": "insufficient_history",
+  "points": []
+}
+```
+
+---
+
+## 11a.13 `GET /admin/analytics/observations-rate`
+
+Возвращает количество observations по временным интервалам.
+
+Используется для графика **«Количество наблюдений»**.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required)
+* `to` (`string`, required)
+* `zone_id` (`integer`, optional)
+* `camera_id` (`integer`, optional)
+* `granularity` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/observations-rate?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `granularity` (`string`) — фактическая детализация.
+* `points` (`array`) — точки графика.
+
+Поля точки:
+
+* `timestamp` (`string`)
+* `observations_count` (`integer`)
+
+**Пример ответа (200)**
+
+```json
+{
+  "granularity": "1h",
+  "points": [
+    {
+      "timestamp": "2026-05-31T12:00:00Z",
+      "observations_count": 38
+    }
+  ]
+}
+```
+
+---
+
+## 11a.14 `GET /admin/analytics/confidence`
+
+Возвращает средний confidence по времени.
+
+Используется для графика **«Уверенность модели»**.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required)
+* `to` (`string`, required)
+* `zone_id` (`integer`, optional)
+* `camera_id` (`integer`, optional)
+* `granularity` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/confidence?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `granularity` (`string`) — фактическая детализация.
+* `points` (`array`) — точки графика.
+
+Поля точки:
+
+* `timestamp` (`string`)
+* `zone_id` (`integer | null`)
+* `camera_id` (`integer | null`)
+* `confidence_avg` (`float | null`)
+* `confidence_min` (`float | null`)
+* `confidence_max` (`float | null`)
+* `observations_count` (`integer`)
+
+**Пример ответа (200)**
+
+```json
+{
+  "granularity": "1h",
+  "points": [
+    {
+      "timestamp": "2026-05-31T12:00:00Z",
+      "zone_id": 15,
+      "camera_id": 3,
+      "confidence_avg": 0.87,
+      "confidence_min": 0.74,
+      "confidence_max": 0.96,
+      "observations_count": 4
+    }
+  ]
+}
+```
+
+---
+
+## 11a.15 `GET /admin/analytics/update-frequency`
+
+Возвращает интервалы обновления данных.
+
+Используется для:
+
+* KPI `средняя частота обновления`;
+* KPI `максимальный интервал между обновлениями`;
+* графика интервалов обновлений;
+* страницы зоны;
+* страницы камеры.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required)
+* `to` (`string`, required)
+* `zone_id` (`integer`, optional)
+* `camera_id` (`integer`, optional)
+* `granularity` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/update-frequency?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `avg_update_interval_sec` (`float | null`) — средний интервал.
+* `max_update_interval_sec` (`float | null`) — максимальный интервал.
+* `freshest_update_at` (`string | null`) — самое свежее обновление.
+* `oldest_update_at` (`string | null`) — самое старое последнее обновление.
+* `by_zone` (`array`) — интервалы по зонам.
+
+Поля элемента `by_zone`:
+
+* `zone_id` (`integer`)
+* `camera_id` (`integer`)
+* `avg_update_interval_sec` (`float | null`)
+* `max_update_interval_sec` (`float | null`)
+* `last_update_at` (`string | null`)
+
+**Пример ответа (200)**
+
+```json
+{
+  "avg_update_interval_sec": 68.5,
+  "max_update_interval_sec": 420,
+  "freshest_update_at": "2026-05-31T12:04:00Z",
+  "oldest_update_at": "2026-05-31T11:42:00Z",
+  "by_zone": [
+    {
+      "zone_id": 15,
+      "camera_id": 3,
+      "avg_update_interval_sec": 65.2,
+      "max_update_interval_sec": 420,
+      "last_update_at": "2026-05-31T12:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## 11a.16 `GET /admin/analytics/detector-health`
+
+Возвращает таблицу состояния detector-а по зонам.
+
+Используется для блока **«Проблемные зоны»**.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional) — только для администратора.
+* `from` (`string`, required)
+* `to` (`string`, required)
+* `zone_id` (`integer`, optional)
+* `camera_id` (`integer`, optional)
+* `status` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/detector-health?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `items` (`DetectorHealthRow[]`) — строки таблицы.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "zone_id": 15,
+      "camera_id": 3,
+      "camera_title": "Кронверкский проспект",
+      "capacity": 20,
+      "occupied_count": 12,
+      "free_count": 8,
+      "occupancy_percent": 60,
+      "confidence_avg": 0.87,
+      "last_update_at": "2026-05-31T12:00:00Z",
+      "sec_ago": 120,
+      "avg_update_interval_sec": 65.2,
+      "max_update_interval_sec": 420,
+      "status": "online"
+    }
+  ]
+}
+```
+
+---
+
+## 11a.17 `GET /admin/analytics/cameras/<camera_id>/detections`
+
+Возвращает последние распознавания камеры.
+
+Используется на странице камеры.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Path-параметры**
+
+* `camera_id` (`integer`, required) — идентификатор камеры.
+
+**Query-параметры**
+
+* `from` (`string`, optional)
+* `to` (`string`, optional)
+* `limit` (`integer`, optional, default `20`)
+* `status` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/cameras/3/detections?limit=20 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `items` (`DetectionRun[]`) — список распознаваний.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "detection_run_id": 101,
+      "camera_id": 3,
+      "zone_id": 15,
+      "started_at": "2026-05-31T12:00:00Z",
+      "finished_at": "2026-05-31T12:00:01Z",
+      "status": "success",
+      "processing_time_ms": 500,
+      "model_version": "v1",
+      "detected_cars_count": 10,
+      "occupied_count": 12,
+      "free_count": 8,
+      "capacity": 20,
+      "confidence_avg": 0.87,
+      "error_code": null,
+      "error_message": null,
+      "has_feedback": false,
+      "raw_snapshot_url": null,
+      "annotated_snapshot_url": null
+    }
+  ]
+}
+```
+
+---
+
+## 11a.18 `GET /admin/analytics/detections/<detection_run_id>`
+
+Возвращает детали одного распознавания.
+
+Используется на странице просмотра распознавания.
+
+**Требуемые разрешения**
+
+* `analytics.view`
+
+**Path-параметры**
+
+* `detection_run_id` (`integer`, required) — идентификатор распознавания.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/detections/101 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `DetectionRun`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "detection_run_id": 101,
+  "camera_id": 3,
+  "zone_id": 15,
+  "started_at": "2026-05-31T12:00:00Z",
+  "finished_at": "2026-05-31T12:00:01Z",
+  "status": "success",
+  "processing_time_ms": 500,
+  "model_version": "v1",
+  "detected_cars_count": 10,
+  "occupied_count": 12,
+  "free_count": 8,
+  "capacity": 20,
+  "confidence_avg": 0.87,
+  "error_code": null,
+  "error_message": null,
+  "has_feedback": true,
+  "raw_snapshot_url": "https://storage.example/raw/101.jpg",
+  "annotated_snapshot_url": "https://storage.example/annotated/101.jpg"
+}
+```
+
+---
+
+## 11a.19 `POST /admin/analytics/detections/<detection_run_id>/feedback`
+
+Создаёт оценку качества распознавания.
+
+Используется на странице распознавания.
+
+**Требуемые разрешения**
+
+* `analytics.feedback.create`
+
+**Path-параметры**
+
+* `detection_run_id` (`integer`, required) — идентификатор распознавания.
+
+**Headers**
+
+* `Authorization: Bearer <access_token>`
+* `Content-Type: application/json`
+
+**Request body**
+
+* `rating` (`string`, required) — оценка.
+* `expected_occupied_count` (`integer`, optional) — правильное количество занятых мест.
+* `expected_free_count` (`integer`, optional) — правильное количество свободных мест.
+* `error_type` (`string`, optional) — тип ошибки.
+* `comment` (`string`, optional) — комментарий.
+
+**Пример запроса**
+
+```http
+POST /api/v1/admin/analytics/detections/101/feedback HTTP/1.1
+Host: api.parktrack.live
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "rating": "partially_correct",
+  "expected_occupied_count": 11,
+  "expected_free_count": 9,
+  "error_type": "false_positive_car",
+  "comment": "Одна машина ошибочно засчитана как занятое место"
+}
+```
+
+**Response (201)**
+
+* `feedback_id` (`integer`) — идентификатор оценки.
+* `detection_run_id` (`integer`) — идентификатор распознавания.
+* `created_at` (`string`) — дата создания.
+
+**Пример ответа (201)**
+
+```json
+{
+  "feedback_id": 7,
+  "detection_run_id": 101,
+  "created_at": "2026-05-31T12:10:00Z"
+}
+```
+
+**Ошибки**
+
+| Код     | Тип                    | Описание                                         |
+| ------- | ---------------------- | ------------------------------------------------ |
+| **401** | `Unauthorized`         | Токен отсутствует или невалиден.                 |
+| **403** | `Forbidden`            | Нет доступа к распознаванию или созданию оценки. |
+| **404** | `Not Found`            | Распознавание не найдено.                        |
+| **422** | `Unprocessable Entity` | Ошибка валидации формы.                          |
+
+---
+
+## 11a.20 `GET /admin/analytics/detections/<detection_run_id>/feedback`
+
+Возвращает список оценок качества для одного распознавания.
+
+Endpoint доступен только администраторам.
+
+**Требуемые разрешения**
+
+* `analytics.feedback.view`
+
+**Path-параметры**
+
+* `detection_run_id` (`integer`, required) — идентификатор распознавания.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/detections/101/feedback HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `items` (`DetectionFeedback[]`) — список оценок.
+
+**Пример ответа (200)**
+
+```json
+{
+  "items": [
+    {
+      "feedback_id": 7,
+      "detection_run_id": 101,
+      "created_by_user_id": 42,
+      "created_by_email": "admin@parktrack.live",
+      "rating": "partially_correct",
+      "expected_occupied_count": 11,
+      "expected_free_count": 9,
+      "error_type": "false_positive_car",
+      "comment": "Одна машина ошибочно засчитана как занятое место",
+      "created_at": "2026-05-31T12:10:00Z",
+      "updated_at": null
+    }
+  ]
+}
+```
+
+---
+
+## 11a.21 `GET /admin/analytics/detections/<detection_run_id>/feedback/<feedback_id>`
+
+Возвращает подробную информацию об одной оценке качества.
+
+Endpoint доступен только администраторам.
+
+**Требуемые разрешения**
+
+* `analytics.feedback.view`
+
+**Path-параметры**
+
+* `detection_run_id` (`integer`, required) — идентификатор распознавания.
+* `feedback_id` (`integer`, required) — идентификатор оценки.
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/detections/101/feedback/7 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)** — объект `DetectionFeedback`.
+
+**Пример ответа (200)**
+
+```json
+{
+  "feedback_id": 7,
+  "detection_run_id": 101,
+  "created_by_user_id": 42,
+  "created_by_email": "admin@parktrack.live",
+  "rating": "partially_correct",
+  "expected_occupied_count": 11,
+  "expected_free_count": 9,
+  "error_type": "false_positive_car",
+  "comment": "Одна машина ошибочно засчитана как занятое место",
+  "created_at": "2026-05-31T12:10:00Z",
+  "updated_at": null
+}
+```
+
+---
+
+## 11a.22 `GET /admin/analytics/forecast-quality`
+
+Возвращает данные для админского графика качества прогнозов.
+
+Endpoint доступен только администраторам.
+
+Используется для сравнения фактической занятости и прогноза на одном графике.
+
+**Требуемые разрешения**
+
+* `admin.forecasts.view`
+
+**Query-параметры**
+
+* `partner_id` (`integer`, optional)
+* `from` (`string`, required)
+* `to` (`string`, required)
+* `zone_id` (`integer`, optional)
+* `camera_id` (`integer`, optional)
+* `forecast_created_at` (`string`, optional) — выбранное время создания прогноза.
+* `granularity` (`string`, optional)
+
+**Пример запроса**
+
+```http
+GET /api/v1/admin/analytics/forecast-quality?zone_id=15&from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&forecast_created_at=2026-05-31T08:00:00Z HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Response (200)**
+
+* `granularity` (`string`) — фактическая детализация.
+* `metrics` (`object`) — числовые метрики качества.
+* `points` (`array`) — точки для графика факт/прогноз.
+
+Поля `metrics`:
+
+* `mae_occupied_count` (`float | null`) — средняя абсолютная ошибка по занятым местам.
+* `mae_occupancy_percent` (`float | null`) — средняя абсолютная ошибка по проценту занятости.
+* `bias_occupancy_percent` (`float | null`) — среднее смещение прогноза.
+* `points_count` (`integer`) — количество точек, по которым посчитаны метрики.
+
+Поля точки:
+
+* `timestamp` (`string`)
+* `zone_id` (`integer`)
+* `actual_occupied_count` (`integer | null`)
+* `actual_occupancy_percent` (`float | null`)
+* `predicted_occupied_count` (`float | null`)
+* `predicted_occupancy_percent` (`float | null`)
+* `absolute_error_occupancy_percent` (`float | null`)
+
+**Пример ответа (200)**
+
+```json
+{
+  "granularity": "1h",
+  "metrics": {
+    "mae_occupied_count": 1.8,
+    "mae_occupancy_percent": 7.4,
+    "bias_occupancy_percent": -2.1,
+    "points_count": 18
+  },
+  "points": [
+    {
+      "timestamp": "2026-05-31T12:00:00Z",
+      "zone_id": 15,
+      "actual_occupied_count": 12,
+      "actual_occupancy_percent": 60,
+      "predicted_occupied_count": 14,
+      "predicted_occupancy_percent": 70,
+      "absolute_error_occupancy_percent": 10
+    }
+  ]
+}
+```
+
+---
+
+## 11a.23 Какие старые endpoint-ы использовать вместо новых
+
+### Камеры
+
+Использовать существующий endpoint:
+
+```http
+GET /cameras
+```
+
+Для:
+
+* списка камер в фильтрах;
+* списка камер на карте;
+* выбора камеры на странице аналитики.
+
+Не создавать:
+
+```http
+GET /admin/analytics/cameras
+```
+
+---
+
+### Детали камеры
+
+Использовать существующий endpoint:
+
+```http
+GET /cameras/<camera_id>
+```
+
+Для:
+
+* верхнего блока страницы камеры;
+* названия камеры;
+* координат;
+* источника;
+* активности камеры;
+* партнёра-владельца.
+
+Не создавать:
+
+```http
+GET /admin/analytics/cameras/<camera_id>
+```
+
+---
+
+### Снапшот камеры
+
+Использовать существующий endpoint:
+
+```http
+GET /cameras/<camera_id>/snapshot
+```
+
+Для:
+
+* вкладки `Последний снимок`;
+* обновления снимка камеры;
+* fullscreen-просмотра обычного кадра.
+
+Для снимка с разметкой использовать:
+
+```http
+GET /cameras/<camera_id>/snapshot?annotated=true&fallback_to_raw=true
+```
+
+Не создавать:
+
+```http
+GET /admin/analytics/cameras/<camera_id>/snapshots
+```
+
+---
+
+### Парковочные зоны
+
+Использовать существующий endpoint:
+
+```http
+GET /zones
+```
+
+Для:
+
+* списка зон в фильтрах;
+* списка зон на карте;
+* выбора зоны на странице аналитики.
+
+Не создавать:
+
+```http
+GET /admin/analytics/parking-zones
+```
+
+---
+
+### Детали зоны
+
+Использовать существующий endpoint:
+
+```http
+GET /zones/<zone_id>
+```
+
+Для:
+
+* верхнего блока страницы зоны;
+* геометрии зоны;
+* capacity;
+* связанной камеры;
+* координат точек.
+
+Не создавать отдельный analytics endpoint для карточки зоны.
+
+---
+
+### Партнёры
+
+Использовать существующий endpoint:
+
+```http
+GET /partners
+```
+
+Для:
+
+* выбора партнёра администратором;
+* фильтрации аналитики по `partner_id`.
+
+Не создавать отдельный analytics endpoint для списка партнёров.
+
+---
+
+## 11a.24 Что точно остаётся новым
+
+Нужно реализовать новые endpoint-ы для данных, которых нет в старом CRUD API:
+
+* сводные KPI;
+* история занятости;
+* прогноз занятости;
+* количество наблюдений по времени;
+* confidence по времени;
+* интервалы обновления;
+* detector health по зонам;
+* список detection runs;
+* детали detection run;
+* feedback по распознаванию;
+* качество прогнозов для администраторов.
+
+Эти данные нельзя удобно получить из старых `GET /cameras` и `GET /zones`, потому что они требуют агрегации по `occupancy_observations`, прогнозам и результатам распознаваний.
