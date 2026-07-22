@@ -24,7 +24,10 @@ title: Cameras
 - существующие обязательные поля камеры сохранены;
 - существующие пути эндпоинтов сохранены;
 - новые поля добавлены как **дополнительные**;
-- клиенты, которые не используют новые поля, могут продолжать работать по прежней схеме.
+- клиенты, которые не используют новые параметры, могут продолжать работать по прежней схеме;
+- live-кадр без query-параметров по-прежнему читается из источника камеры;
+- сохранённые кадры детекций загружаются из S3, проверяются и расшифровываются API в памяти;
+- прямые и presigned-ссылки S3 клиенту не возвращаются.
 
 ---
 
@@ -45,8 +48,11 @@ Authorization: Bearer <access_token>
 - `cameras.view` — просмотр камер;
 - `cameras.create` — создание камер;
 - `cameras.update` — изменение камер;
-- `cameras.delete` — удаление камер;
-- `admin.monitoring.view` — просмотр снапшотов с визуализацией распознавания.
+- `cameras.delete` — удаление камер.
+
+Для всех режимов `GET /cameras/<camera_id>/snapshot` текущая реализация требует
+`cameras.view`. Эндпоинты артефактов отдельного распознавания в разделе Analytics
+дополнительно требуют `analytics.view`.
 
 ### Правила видимости данных
 
@@ -71,7 +77,8 @@ Authorization: Bearer <access_token>
 | **415** | `Unsupported Media Type` | Неверный `Content-Type`. Используй `application/json`.                   |
 | **422** | `Unprocessable Entity`   | Ошибка валидации.                                                        |
 | **500** | `Internal Server Error`  | Необработанная ошибка сервера.                                           |
-| **503** | `Service Unavailable`    | Сервис временно недоступен.                                              |
+| **502** | `Bad Gateway`            | Сохранённый объект повреждён или не соответствует детекции.              |
+| **503** | `Service Unavailable`    | Сервис или S3-хранилище временно недоступны.                             |
 
 Пример ответа:
 
@@ -558,7 +565,7 @@ Authorization: Bearer <token>
 **Headers**
 - `Authorization: Bearer <access_token>`
 
-**Response (204)**  
+**Response (204)**
 Тело ответа отсутствует.
 
 **Пример запроса**
@@ -655,32 +662,43 @@ Authorization: Bearer <token>
 
 ## 4.12 `GET /cameras/<camera_id>/snapshot`
 
-Возвращает кадр из видеопотока камеры.
+Возвращает live-кадр камеры либо сохранённый кадр конкретной детекции.
 
-По умолчанию эндпоинт возвращает обычный снапшот.
-
-При наличии соответствующих прав эндпоинт может вернуть снапшот с визуализацией распознавания.
+Без query-параметров сервер пытается получить новый кадр из `source` камеры.
+Сохранённые `raw`- и `annotated`-кадры загружаются из S3 в зашифрованном формате
+`PTSNAP01`, проходят проверку AES-256-GCM и расшифровываются только в памяти API.
 
 **Path-параметры**
+
 - `camera_id` (`integer`, required) — идентификатор камеры.
 
 **Требуемые разрешения**
-- для обычного снапшота: `cameras.view`
-- для снапшота с визуализацией: `admin.monitoring.view`
 
-**Требуемая область доступа**
-- `read_scope` должен включать целевую камеру.
+- `cameras.view`
 
 **Headers**
+
 - `Authorization: Bearer <access_token>`
 
 **Query-параметры (необязательные)**
 
-- `annotated` (`boolean`) — если `true`, сервер пытается вернуть снапшот с визуализацией распознавания.
-- `last_detection` (`boolean`) — если `true` и `annotated=false`, сервер возвращает снапшот, сделанный в момент последней детекции, вместо попытки получить новый. При `annotated=true` значение аргумента не влияет ни на что. По умолчанию, `false`.
-- `fallback_to_raw` (`boolean`) — если `true`, сервер может вернуть обычный снапшот, если снапшот с визуализацией недоступен.
+- `annotated` (`boolean`, default `false`) — вернуть сохранённый кадр с разметкой.
+- `last_detection` (`boolean`, default `false`) — при `annotated=false` вернуть
+  последний сохранённый `raw`-кадр детекции вместо live-кадра.
+- `fallback_to_raw` (`boolean`, default `false`) — при `annotated=true` разрешить
+  возврат `raw`, если `annotated` для выбранной детекции отсутствует.
+- `detection_run_id` (`integer >= 1`) — выбрать конкретное распознавание этой
+  камеры вместо последнего. При `annotated=false` возвращается `raw`, при
+  `annotated=true` — `annotated` либо `raw`, если разрешён fallback.
 
-**Пример запроса — обычный снапшот**
+Приоритет выбора:
+
+1. Если указан `detection_run_id`, выбирается только это распознавание.
+2. Иначе при `annotated=true` выбирается последнее распознавание с подходящим кадром.
+3. Иначе при `last_detection=true` выбирается последний сохранённый `raw`.
+4. Во всех остальных случаях возвращается новый live-кадр из источника камеры.
+
+**Пример — live-кадр**
 
 ```http
 GET /api/v1/cameras/1/snapshot HTTP/1.1
@@ -688,7 +706,7 @@ Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
-**Пример запроса — снапшот с визуализацией**
+**Пример — последний сохранённый кадр с разметкой**
 
 ```http
 GET /api/v1/cameras/1/snapshot?annotated=true&fallback_to_raw=true HTTP/1.1
@@ -696,23 +714,49 @@ Host: api.parktrack.live
 Authorization: Bearer <token>
 ```
 
+**Пример — исходный кадр конкретной детекции**
+
+```http
+GET /api/v1/cameras/1/snapshot?detection_run_id=101 HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
+**Пример — размеченный кадр конкретной детекции**
+
+```http
+GET /api/v1/cameras/1/snapshot?detection_run_id=101&annotated=true HTTP/1.1
+Host: api.parktrack.live
+Authorization: Bearer <token>
+```
+
 **Response (200)**
 
-Тело ответа содержит изображение.
+Тело ответа — бинарный JPEG с `Content-Type: image/jpeg`.
 
-Возможные `Content-Type`:
-- `image/jpeg`
-- `image/png`
-- `image/webp`
+Для сохранённого кадра API также возвращает:
+
+| Заголовок | Значение |
+| --- | --- |
+| `Content-Disposition` | `inline; filename="raw.jpg"` или `inline; filename="annotated.jpg"` |
+| `Cache-Control` | `private, no-store` |
+| `X-Detection-Run-Id` | идентификатор выбранного распознавания |
+| `X-Snapshot-Captured-At` | время кадра из аутентифицированного заголовка `PTSNAP01` |
+| `X-Snapshot-Variant` | фактически возвращённый вариант: `raw` или `annotated` |
+
+У live-кадра заголовок `X-Snapshot-Variant` равен `raw`, а заголовки
+`X-Detection-Run-Id` и `X-Snapshot-Captured-At` отсутствуют.
 
 **Ошибки**
 
-| Код     | Тип                      | Описание                                                                  |
-|---------|--------------------------|---------------------------------------------------------------------------|
-| **401** | `Unauthorized`           | Токен отсутствует, невалиден или истёк.                                   |
-| **403** | `Forbidden`              | Недостаточно прав для просмотра снапшота или визуализации.                |
-| **404** | `Not Found`              | Камера не найдена или снапшот недоступен.                                 |
-| **503** | `Service Unavailable`    | Сервис получения снапшота временно недоступен.                            |
+| Код | Тип | Описание |
+| --- | --- | --- |
+| **401** | `Unauthorized` | Токен отсутствует, невалиден или истёк. |
+| **403** | `Forbidden` | Нет разрешения `cameras.view`. |
+| **404** | `Not Found` | Камера, выбранная детекция, metadata или объект S3 не найдены. |
+| **422** | `Unprocessable Entity` | `detection_run_id` меньше 1 или параметр имеет неверный тип. |
+| **502** | `Bad Gateway` | Контейнер повреждён, подменён или не соответствует камере/варианту. |
+| **503** | `Service Unavailable` | S3, ключ или конфигурация хранилища недоступны. |
 
 **Пример ответа (404)**
 
