@@ -51,19 +51,11 @@ Authorization: Bearer <access_token>
 - `cameras.delete` — удаление камер.
 
 Для всех режимов `GET /cameras/<camera_id>/snapshot` текущая реализация требует
-`cameras.view`. Эндпоинты артефактов отдельного распознавания в разделе Analytics
-дополнительно требуют `analytics.view`.
+`cameras.view`.
 
 ### Правила видимости данных
 
-Сервер возвращает только те камеры, которые доступны текущему пользователю в рамках его глобальных прав, членства в партнёрской организации и области доступа к данным.
-
-Для камер партнёров рекомендуется использовать:
-
-- `partner_id` — владелец камеры;
-- `created_by_user_id` — пользователь, создавший камеру.
-
-Это позволяет применять `read_scope`, `write_scope` и `delete_scope` к камерам партнёра.
+Администратор видит все камеры. Остальные пользователи видят только камеры активных партнёров, в которых состоят; недоступная камера возвращается как `404`.
 
 ### Общие ошибки
 
@@ -132,6 +124,7 @@ Authorization: Bearer <access_token>
 - `partner_id` (`integer | null`) — идентификатор партнёрской организации-владельца камеры.
 - `created_by_user_id` (`integer | null`) — идентификатор пользователя, создавшего камеру.
 - `is_active` (`boolean`) — активна ли камера.
+- `last_snapshot_at` (`string | null`, ISO 8601) — время последнего снапшота.
 
 > Поля `partner_id`, `created_by_user_id` и `is_active` являются дополнительными и не обязательны для старых клиентов.
 
@@ -315,8 +308,7 @@ Authorization: Bearer <token>
 **Требуемые разрешения**
 - `cameras.create`
 
-**Требуемая область доступа**
-- `write_scope` должен разрешать создание камеры в выбранной области данных.
+Для не-администратора `partner_id` должен принадлежать одному из его активных партнёров. Если активных партнёров несколько, `partner_id` обязателен.
 
 **Headers**
 - `Authorization: Bearer <access_token>`
@@ -402,8 +394,6 @@ Authorization: Bearer <token>
 **Требуемые разрешения**
 - `cameras.view`
 
-**Требуемая область доступа**
-- `read_scope` должен включать целевую камеру.
 
 **Headers**
 - `Authorization: Bearer <access_token>`
@@ -460,8 +450,6 @@ Authorization: Bearer <token>
 **Требуемые разрешения**
 - `cameras.update`
 
-**Требуемая область доступа**
-- `write_scope` должен включать целевую камеру.
 
 **Headers**
 - `Authorization: Bearer <access_token>`
@@ -475,7 +463,6 @@ Authorization: Bearer <token>
 - `calib` (`json | null, optional`) — калибровка камеры.
 - `latitude` (`float`, optional) — широта камеры.
 - `longitude` (`float`, optional) — долгота камеры.
-- `partner_id` (`integer, optional`) — владелец камеры.
 - `is_active` (`boolean, optional`) — активность камеры.
 
 > Поля `camera_id`, `created_at`, `updated_at`, `created_by_user_id` изменяются сервером и игнорируются в теле запроса.
@@ -541,8 +528,7 @@ Authorization: Bearer <token>
 | **400** | `Bad Request`          | Невалидное тело запроса.                                                 |
 | **401** | `Unauthorized`         | Токен отсутствует, невалиден или истёк.                                  |
 | **403** | `Forbidden`            | Недостаточно прав для изменения камеры.                                  |
-| **404** | `Not Found`            | Камера или указанный `partner_id` не найдены.                            |
-| **409** | `Conflict`             | Конфликт уникальности `title`.                                           |
+| **404** | `Not Found`            | Камера не найдена.                                                         |
 | **422** | `Unprocessable Entity` | Ошибка валидации, например `title` пустой или координаты вне диапазона.  |
 
 ---
@@ -559,8 +545,6 @@ Authorization: Bearer <token>
 **Требуемые разрешения**
 - `cameras.delete`
 
-**Требуемая область доступа**
-- `delete_scope` должен включать целевую камеру.
 
 **Headers**
 - `Authorization: Bearer <access_token>`
@@ -648,7 +632,7 @@ Authorization: Bearer <token>
 |---------|-----------------|-----------------------------------|
 | **401** | `Unauthorized`  | Токен отсутствует или невалиден.  |
 | **403** | `Forbidden`     | Недостаточно прав.                |
-| **404** | `Not Found`     | Не добавлено ни одной камеры.     |
+| **404** | `Not Found`     | Нет активных камер.               |
 
 **Пример ответа (404)**
 
@@ -767,6 +751,7 @@ Authorization: Bearer <token>
 ```
 
 ---
+
 
 ## 4.13 Требования к другим разделам API
 

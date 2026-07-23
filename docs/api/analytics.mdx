@@ -24,7 +24,6 @@ title: Analytics
 
 * `GET /cameras` — список камер, фильтры, карта камер;
 * `GET /cameras/<camera_id>` — карточка камеры;
-* `GET /cameras/<camera_id>/snapshot` — live-снимок или сохранённый кадр детекции;
 * `GET /zones` — список парковочных зон, фильтры, карта зон;
 * `GET /zones/<zone_id>` — карточка зоны;
 * `GET /partners` — выбор партнёра для администратора.
@@ -35,18 +34,8 @@ title: Analytics
 * списка зон;
 * карточки камеры;
 * карточки зоны;
-* снапшота камеры.
 
-Для страницы конкретного распознавания нужно использовать URL из модели
-`DetectionRun`: `raw_snapshot_url`, `annotated_snapshot_url` и
-`yolo_labels_url`. Эти URL указывают на API, а не напрямую на S3. API скачивает
-зашифрованный объект, проверяет целостность контейнера `PTSNAP01`, расшифровывает
-его в памяти и возвращает исходный JPEG или TXT.
-
-Для live-снимка и последней сохранённой детекции камеры остаётся существующий
-`GET /cameras/<camera_id>/snapshot`; его режимы описаны в разделе Cameras.
-
-Новые endpoint-ы нужны для агрегированной аналитики и выдачи артефактов распознавания:
+Новые endpoint-ы нужны для агрегированной аналитики и feedback по распознаваниям:
 
 * `GET /admin/analytics/summary`
 * `GET /admin/analytics/occupancy-history`
@@ -57,8 +46,6 @@ title: Analytics
 * `GET /admin/analytics/detector-health`
 * `GET /admin/analytics/cameras/<camera_id>/detections`
 * `GET /admin/analytics/detections/<detection_run_id>`
-* `GET /admin/analytics/detections/<detection_run_id>/snapshot`
-* `GET /admin/analytics/detections/<detection_run_id>/labels`
 * `POST /admin/analytics/detections/<detection_run_id>/feedback`
 * `GET /admin/analytics/detections/<detection_run_id>/feedback`
 * `GET /admin/analytics/detections/<detection_run_id>/feedback/<feedback_id>`
@@ -83,7 +70,6 @@ Authorization: Bearer <access_token>
 * `analytics.view` — просмотр аналитики;
 * `analytics.feedback.create` — создание оценки качества распознавания;
 * `analytics.feedback.view` — просмотр оценок качества;
-* `admin.monitoring.view` — доступ к техническим метрикам и расширенному мониторингу;
 * `admin.forecasts.view` — просмотр качества прогнозов.
 
 ### Модель доступа
@@ -369,19 +355,6 @@ Confidence передаётся числом от `0` до `1`.
 * `error_code` (`string | null`) — код ошибки.
 * `error_message` (`string | null`) — текст ошибки.
 * `has_feedback` (`boolean`) — есть ли оценка качества.
-* `raw_snapshot_url` (`string | null`) — ссылка на raw-изображение распознавания, если хранится.
-* `annotated_snapshot_url` (`string | null`) — ссылка на изображение с разметкой, если хранится.
-* `yolo_labels_url` (`string | null`) — ссылка на TXT-разметку всех автомобилей в формате YOLOv12, если хранится.
-
-Все три ссылки относятся именно к этому `detection_run_id` и являются относительными
-URL ParkTrack API, а не прямыми или presigned-ссылками S3. Значение `null` означает,
-что ссылка на соответствующий объект отсутствует в `metadata` старого распознавания.
-
-Для загрузки требуется тот же Bearer-токен и разрешение `analytics.view`. URL нельзя
-подставлять напрямую в `<img>`, если клиент не умеет передать заголовок
-`Authorization`: браузерному клиенту следует получить файл через `fetch` как `Blob`
-и создать object URL. API расшифровывает объект только в памяти и не сохраняет
-открытый JPEG или TXT на локальный диск.
 
 ---
 
@@ -806,6 +779,9 @@ Authorization: Bearer <token>
 * `camera_id` (`integer`, optional)
 * `status` (`string`, optional)
 
+Допустимые значения `status`: `online`, `stale`, `offline`, `no_data`,
+`low_confidence`, `error`.
+
 **Пример запроса**
 
 ```http
@@ -862,8 +838,8 @@ Authorization: Bearer <token>
 
 * `from` (`string`, optional)
 * `to` (`string`, optional)
-* `limit` (`integer`, optional, default `20`)
-* `status` (`string`, optional)
+* `limit` (`integer`, optional, `1..100`, default `20`)
+* `status` (`success` | `failed` | `partial`, optional)
 
 **Пример запроса**
 
@@ -898,10 +874,7 @@ Authorization: Bearer <token>
       "confidence_avg": 0.87,
       "error_code": null,
       "error_message": null,
-      "has_feedback": false,
-      "raw_snapshot_url": "/api/v1/admin/analytics/detections/101/snapshot?variant=raw",
-      "annotated_snapshot_url": "/api/v1/admin/analytics/detections/101/snapshot?variant=annotated",
-      "yolo_labels_url": "/api/v1/admin/analytics/detections/101/labels"
+      "has_feedback": false
     }
   ]
 }
@@ -952,140 +925,13 @@ Authorization: Bearer <token>
   "confidence_avg": 0.87,
   "error_code": null,
   "error_message": null,
-  "has_feedback": true,
-  "raw_snapshot_url": "/api/v1/admin/analytics/detections/101/snapshot?variant=raw",
-  "annotated_snapshot_url": "/api/v1/admin/analytics/detections/101/snapshot?variant=annotated",
-  "yolo_labels_url": "/api/v1/admin/analytics/detections/101/labels"
+  "has_feedback": true
 }
 ```
 
 ---
 
-## 11a.19 `GET /admin/analytics/detections/<detection_run_id>/snapshot`
-
-Возвращает один из двух кадров конкретного распознавания: исходный кадр `raw` или
-кадр `annotated` с зонами, рамками автомобилей и легендой.
-
-API не перенаправляет клиента в S3. Сервер скачивает зашифрованный объект
-`PTSNAP01`, проверяет AES-256-GCM, сверяет `camera_id` и вариант с запрошенным
-распознаванием, расшифровывает JPEG в памяти и возвращает его клиенту.
-
-**Требуемые разрешения**
-
-* `analytics.view`
-
-**Path-параметры**
-
-* `detection_run_id` (`integer`, required) — идентификатор распознавания.
-
-**Query-параметры**
-
-* `variant` (`raw | annotated`, optional, default `raw`) — требуемый вариант кадра.
-
-**Пример запроса — исходный кадр**
-
-```http
-GET /api/v1/admin/analytics/detections/101/snapshot?variant=raw HTTP/1.1
-Host: api.parktrack.live
-Authorization: Bearer <token>
-```
-
-**Пример запроса — кадр с разметкой**
-
-```http
-GET /api/v1/admin/analytics/detections/101/snapshot?variant=annotated HTTP/1.1
-Host: api.parktrack.live
-Authorization: Bearer <token>
-```
-
-**Response (200)**
-
-Тело ответа — бинарный JPEG.
-
-| Заголовок | Значение |
-| --- | --- |
-| `Content-Type` | `image/jpeg` |
-| `Content-Disposition` | `inline; filename="raw.jpg"` или `inline; filename="annotated.jpg"` |
-| `Cache-Control` | `private, no-store` |
-| `X-Detection-Run-Id` | идентификатор распознавания |
-| `X-Snapshot-Captured-At` | время кадра из аутентифицированного заголовка `PTSNAP01` |
-| `X-Snapshot-Variant` | `raw` или `annotated` |
-
-**Ошибки**
-
-| Код | Тип | Описание |
-| --- | --- | --- |
-| **401** | `Unauthorized` | Токен отсутствует или невалиден. |
-| **403** | `Forbidden` | Распознавание недоступно текущему пользователю. |
-| **404** | `Not Found` | Распознавание, ссылка в metadata или объект S3 не найдены. |
-| **422** | `Unprocessable Entity` | Передано неизвестное значение `variant`. |
-| **502** | `Bad Gateway` | Контейнер повреждён, подменён или не соответствует камере/варианту. |
-| **503** | `Service Unavailable` | S3, ключ расшифровки или конфигурация хранилища недоступны. |
-
----
-
-## 11a.20 `GET /admin/analytics/detections/<detection_run_id>/labels`
-
-Возвращает TXT-файл с итоговыми детекциями автомобилей для конкретного
-распознавания в формате YOLOv12 detection.
-
-Каждая непустая строка имеет формат:
-
-```text
-<class_id> <x_center> <y_center> <width> <height>
-```
-
-Координаты нормализованы в диапазон `[0, 1]`, confidence в файл не включается,
-для автомобиля используется `class_id=0`. Пустой файл является корректным ответом,
-если автомобили не были найдены.
-
-**Требуемые разрешения**
-
-* `analytics.view`
-
-**Path-параметры**
-
-* `detection_run_id` (`integer`, required) — идентификатор распознавания.
-
-**Пример запроса**
-
-```http
-GET /api/v1/admin/analytics/detections/101/labels HTTP/1.1
-Host: api.parktrack.live
-Authorization: Bearer <token>
-```
-
-**Response (200)**
-
-| Заголовок | Значение |
-| --- | --- |
-| `Content-Type` | `text/plain; charset=utf-8` |
-| `Content-Disposition` | `attachment; filename="labels.txt"` |
-| `Cache-Control` | `private, no-store` |
-| `X-Detection-Run-Id` | идентификатор распознавания |
-| `X-Snapshot-Captured-At` | время кадра из аутентифицированного заголовка `PTSNAP01` |
-| `X-Snapshot-Variant` | `labels` |
-
-Пример тела ответа:
-
-```text
-0 0.512500 0.438889 0.125000 0.211111
-0 0.731250 0.455556 0.137500 0.233333
-```
-
-**Ошибки**
-
-| Код | Тип | Описание |
-| --- | --- | --- |
-| **401** | `Unauthorized` | Токен отсутствует или невалиден. |
-| **403** | `Forbidden` | Распознавание недоступно текущему пользователю. |
-| **404** | `Not Found` | Распознавание, ссылка в metadata или объект S3 не найдены. |
-| **502** | `Bad Gateway` | Контейнер повреждён, имеет неверный формат или labels не являются UTF-8. |
-| **503** | `Service Unavailable` | S3, ключ расшифровки или конфигурация хранилища недоступны. |
-
----
-
-## 11a.21 `POST /admin/analytics/detections/<detection_run_id>/feedback`
+## 11a.19 `POST /admin/analytics/detections/<detection_run_id>/feedback`
 
 Создаёт оценку качества распознавания.
 
@@ -1156,7 +1002,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 11a.22 `GET /admin/analytics/detections/<detection_run_id>/feedback`
+## 11a.20 `GET /admin/analytics/detections/<detection_run_id>/feedback`
 
 Возвращает список оценок качества для одного распознавания.
 
@@ -1206,7 +1052,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 11a.23 `GET /admin/analytics/detections/<detection_run_id>/feedback/<feedback_id>`
+## 11a.21 `GET /admin/analytics/detections/<detection_run_id>/feedback/<feedback_id>`
 
 Возвращает подробную информацию об одной оценке качества.
 
@@ -1251,7 +1097,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 11a.24 `GET /admin/analytics/forecast-quality`
+## 11a.22 `GET /admin/analytics/forecast-quality`
 
 Возвращает данные для админского графика качества прогнозов.
 
@@ -1331,7 +1177,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 11a.25 Какие старые endpoint-ы использовать вместо новых
+## 11a.23 Какие старые endpoint-ы использовать вместо новых
 
 ### Камеры
 
@@ -1376,42 +1222,6 @@ GET /cameras/<camera_id>
 
 ```http
 GET /admin/analytics/cameras/<camera_id>
-```
-
----
-
-### Снапшот камеры
-
-Использовать существующий endpoint:
-
-```http
-GET /cameras/<camera_id>/snapshot
-```
-
-Для:
-
-* вкладки `Последний снимок`;
-* обновления снимка камеры;
-* fullscreen-просмотра обычного кадра.
-
-Для последнего сохранённого кадра с разметкой использовать:
-
-```http
-GET /cameras/<camera_id>/snapshot?annotated=true&fallback_to_raw=true
-```
-
-Для кадра конкретного распознавания можно передать `detection_run_id`, однако на
-странице распознавания предпочтительно использовать готовые URL из `DetectionRun`:
-
-```http
-GET /cameras/<camera_id>/snapshot?detection_run_id=<detection_run_id>
-GET /cameras/<camera_id>/snapshot?detection_run_id=<detection_run_id>&annotated=true
-```
-
-Не создавать:
-
-```http
-GET /admin/analytics/cameras/<camera_id>/snapshots
 ```
 
 ---
@@ -1475,9 +1285,9 @@ GET /partners
 
 ---
 
-## 11a.26 Что точно остаётся новым
+## 11a.24 Что точно остаётся новым
 
-К новым endpoint-ам относятся данные и артефакты, которых нет в старом CRUD API:
+К новым endpoint-ам относятся данные, которых нет в старом CRUD API:
 
 * сводные KPI;
 * история занятости;
@@ -1488,8 +1298,6 @@ GET /partners
 * detector health по зонам;
 * список detection runs;
 * детали detection run;
-* загрузка `raw`- и `annotated`-кадров любой детекции;
-* загрузка YOLOv12 labels любой детекции;
 * feedback по распознаванию;
 * качество прогнозов для администраторов.
 
