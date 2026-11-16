@@ -216,7 +216,7 @@ Authorization: Bearer <access_token>
 
 ```http
 GET /api/v1/cameras?q=просп HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -224,7 +224,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras?bbox=30.30,59.92,30.35,59.97&view=map HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -334,7 +334,7 @@ Authorization: Bearer <token>
 
 ```http
 POST /api/v1/cameras/new HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -402,7 +402,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -471,7 +471,7 @@ Authorization: Bearer <token>
 
 ```http
 PUT /api/v1/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -486,7 +486,7 @@ Authorization: Bearer <token>
 
 ```http
 PUT /api/v1/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -556,7 +556,7 @@ Authorization: Bearer <token>
 
 ```http
 DELETE /api/v1/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -608,7 +608,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/next HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -686,7 +686,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/1/snapshot HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -694,7 +694,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/1/snapshot?annotated=true&fallback_to_raw=true HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -702,7 +702,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/1/snapshot?detection_run_id=101 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -710,7 +710,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/cameras/1/snapshot?detection_run_id=101&annotated=true HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 

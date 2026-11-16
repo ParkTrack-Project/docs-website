@@ -243,7 +243,7 @@ Authorization: Bearer <access_token>
 
 ```http
 GET /api/v1/admin/overview HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -301,7 +301,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/cameras?camera_status=online&processing_status=running&top=20&offset=0 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -367,7 +367,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -405,7 +405,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/cameras/1/snapshot?annotated=true&fallback_to_raw=true HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -446,7 +446,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/cameras/1/snapshot/info HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -505,7 +505,7 @@ Authorization: Bearer <token>
 
 ```http
 POST /api/v1/admin/cameras/1/processing/restart HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -562,7 +562,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/zones?camera_id=1&top=20&offset=0 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -599,7 +599,7 @@ Authorization: Bearer <token>
 
 ```http
 POST /api/v1/admin/zones/1/recount HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 

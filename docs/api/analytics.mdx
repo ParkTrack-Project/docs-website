@@ -414,7 +414,7 @@ Confidence передаётся числом от `0` до `1`.
 
 ```http
 GET /api/v1/admin/analytics/summary?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -466,7 +466,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/occupancy-history?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -524,7 +524,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/occupancy-forecast?zone_id=15&from=2026-05-31T12:00:00Z&to=2026-06-01T12:00:00Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -596,7 +596,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/observations-rate?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -649,7 +649,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/confidence?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&granularity=1h HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -718,7 +718,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/update-frequency?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -786,7 +786,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/detector-health?from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -845,7 +845,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/cameras/3/detections?limit=20 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -900,7 +900,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/admin/analytics/detections/101 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -962,7 +962,7 @@ Authorization: Bearer <token>
 
 ```http
 POST /api/v1/admin/analytics/detections/101/feedback HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -1020,7 +1020,7 @@ Endpoint доступен только администраторам.
 
 ```http
 GET /api/v1/admin/analytics/detections/101/feedback HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -1037,7 +1037,7 @@ Authorization: Bearer <token>
       "feedback_id": 7,
       "detection_run_id": 101,
       "created_by_user_id": 42,
-      "created_by_email": "admin@parktrack.live",
+      "created_by_email": "admin@parktrack.app",
       "rating": "partially_correct",
       "expected_occupied_count": 11,
       "expected_free_count": 9,
@@ -1071,7 +1071,7 @@ Endpoint доступен только администраторам.
 
 ```http
 GET /api/v1/admin/analytics/detections/101/feedback/7 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -1084,7 +1084,7 @@ Authorization: Bearer <token>
   "feedback_id": 7,
   "detection_run_id": 101,
   "created_by_user_id": 42,
-  "created_by_email": "admin@parktrack.live",
+  "created_by_email": "admin@parktrack.app",
   "rating": "partially_correct",
   "expected_occupied_count": 11,
   "expected_free_count": 9,
@@ -1123,7 +1123,7 @@ Endpoint доступен только администраторам.
 
 ```http
 GET /api/v1/admin/analytics/forecast-quality?zone_id=15&from=2026-05-31T00:00:00Z&to=2026-05-31T23:59:59Z&forecast_created_at=2026-05-31T08:00:00Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 

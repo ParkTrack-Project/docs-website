@@ -280,7 +280,7 @@ Authorization: Bearer <access_token>
 
 ```http
 GET /api/v1/occupancy?zone_id=1&from=2026-04-06T00:00:00Z&to=2026-04-06T23:59:59Z HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -288,7 +288,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/occupancy?zone_id=1&from=2026-04-06T08:00:00Z&to=2026-04-06T12:00:00Z&view=series HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -296,7 +296,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/occupancy?bbox=30.30,59.92,30.35,59.97&at=2026-04-06T10:10:00Z&view=map HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -437,7 +437,7 @@ Authorization: Bearer <token>
 
 ```http
 POST /api/v1/occupancy/new HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -509,7 +509,7 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/v1/occupancy/1001 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -560,7 +560,7 @@ Authorization: Bearer <token>
 
 ```http
 PUT /api/v1/occupancy/1001 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -628,7 +628,7 @@ Authorization: Bearer <token>
 
 ```http
 DELETE /api/v1/occupancy/1001 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 

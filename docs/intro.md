@@ -11,7 +11,7 @@ title: Инфо
 
 ## Наш проект
 - [Организация на GitHub](https://github.com/parktrack-project)
-- [Карта парковок](https://parktrack.live)
-- [Админ-панель](https://admin.parktrack.live)
+- [Карта парковок](https://parktrack.app)
+- [Админ-панель](https://admin.parktrack.app)
 
 ![img.png](images/img.png)

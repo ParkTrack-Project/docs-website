@@ -79,7 +79,7 @@ highlight={["occupancy_updated_at"]}/>
 **Пример запроса**
 ```http
 GET /api/v0/zones?camera_id=1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -116,7 +116,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 POST /api/v0/zones/new HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -199,7 +199,7 @@ highlight={["occupancy_updated_at"]}/>
 **Пример запроса**
 ```http
 GET /api/v0/zones/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -262,7 +262,7 @@ highlight={["occupancy_updated_at"]}/>
 *Частичное обновление занятости*
 ```http
 PUT /api/v0/zones/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -275,7 +275,7 @@ Authorization: Bearer <token>
 *Полное обновление геометрии/параметров*
 ```http
 PUT /api/v0/zones/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -317,7 +317,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 DELETE /api/v0/zones/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 

@@ -45,7 +45,7 @@ import JSONHighlight from '@site/src/components/JSONHighlight';
 **Пример запроса**
 ```http
 GET /api/v0/cameras?q=просп HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -116,7 +116,7 @@ highlight={["source", "image_width", "image_height", "calib"]}/>
 **Пример запроса**
 ```http
 POST /api/v0/cameras/new HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 ```
@@ -225,7 +225,7 @@ Content-Type: application/json
 **Пример запроса**
 ```http
 GET /api/v0/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -289,7 +289,7 @@ Authorization: Bearer <token>
 **Пример запроса — полное обновление**
 ```http
 PUT /api/v0/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -303,7 +303,7 @@ Authorization: Bearer <token>
 **Пример запроса — частичное обновление (только title)**
 ```http
 PUT /api/v0/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Content-Type: application/json
 Authorization: Bearer <token>
 
@@ -356,7 +356,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 DELETE /api/v0/cameras/1 HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -392,7 +392,7 @@ _Примеры:_
 **Пример запроса**
 ```http
 GET /api/v0/cameras/next HTTP/1.1
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
@@ -441,7 +441,7 @@ Authorization: Bearer <token>
 **Пример запроса**
 ```http
 GET /cameras/1/snapshot
-Host: api.parktrack.live
+Host: api.parktrack.app
 Authorization: Bearer <token>
 ```
 
