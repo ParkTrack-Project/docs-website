@@ -1,6 +1,6 @@
 # Сайт документации проекта
 
-## [docs.parktrack.live - открыть сайт](https://docs.parktrack.live/)
+## [docs.parktrack.app - открыть сайт](https://docs.parktrack.app/)
 
 This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
 
